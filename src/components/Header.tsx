@@ -1,11 +1,25 @@
-import React, { useState } from 'react';
-import { NavLink, Link } from 'react-router-dom';
-import { Camera, Menu, X, Lock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { NavLink, Link, useLocation } from 'react-router-dom';
+import { Menu, X, Lock } from 'lucide-react';
 import { useData } from '../lib/dataContext.tsx';
 
 export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const { settings, isAdmin } = useData();
+  const location = useLocation();
+  const isHomePage = location.pathname === '/';
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 30);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const navLinks = [
     { label: 'HOME', path: '/' },
@@ -17,8 +31,12 @@ export const Header: React.FC = () => {
     { label: 'CONTACTS', path: '/contacts' },
   ];
 
+  const headerClass = `site-header ${
+    scrolled ? 'scrolled' : isHomePage ? 'transparent' : 'scrolled'
+  }`;
+
   return (
-    <header className="site-header">
+    <header className={headerClass}>
       <div className="header-inner">
         {/* Logo Lockup */}
         <Link to="/" className="site-logo" onClick={() => setMobileMenuOpen(false)}>

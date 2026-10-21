@@ -48,6 +48,7 @@ const PageLoader: React.FC = () => (
 const PublicLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
+  const isHomePage = location.pathname === '/';
 
   if (isAdmin) {
     return <>{children}</>;
@@ -56,7 +57,7 @@ const PublicLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => 
   return (
     <div className="site-wrapper">
       <Header />
-      <main className="main-content">{children}</main>
+      <main className={`main-content ${isHomePage ? '' : 'has-header-offset'}`}>{children}</main>
       <Footer />
     </div>
   );
