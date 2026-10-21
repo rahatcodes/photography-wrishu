@@ -19,3 +19,13 @@ export const supabase = isSupabaseConfigured
       },
     })
   : null;
+
+// Clean standalone client for Storage without corrupted user session tokens
+export const supabaseStorage = isSupabaseConfigured
+  ? createClient(rawUrl, rawKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    })
+  : null;

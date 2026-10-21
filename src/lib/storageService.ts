@@ -7,7 +7,7 @@
  * 3. Client-side compression pipeline: Guarantees files are strictly < 100 KB, preserving image fidelity and sharpness.
  */
 
-import { supabase, isSupabaseConfigured } from './supabaseClient.ts';
+import { supabase, supabaseStorage, isSupabaseConfigured } from './supabaseClient.ts';
 import {
   compressImageBelow100KB,
   compressImageWithProfile,
@@ -84,91 +84,57 @@ export async function uploadHeroImageToSupabase(
 
   onProgress?.('Uploading to Supabase Storage bucket (hero)...', 60);
 
-  // 2. Upload to Supabase 'hero' bucket
-  if (supabase && isSupabaseConfigured) {
-    try {
-      const cleanName = file.name
-        .replace(/\.[^/.]+$/, '')
-        .replace(/[^a-zA-Z0-9_-]/g, '_')
-        .toLowerCase();
-      const filePath = `hero-slides/${orientation}-${Date.now()}-${cleanName}.webp`;
+  // 2. Upload to Supabase 'hero' bucket using clean storage client
+  const client = supabaseStorage || supabase;
+  if (!client || !isSupabaseConfigured) {
+    throw new Error('Supabase client is not configured. Please check your environment variables.');
+  }
 
-      const { data, error } = await supabase.storage
+  try {
+    const cleanName = file.name
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .toLowerCase();
+    const filePath = `hero-slides/${orientation}-${Date.now()}-${cleanName}.webp`;
+
+    const { data, error } = await client.storage
+      .from('hero')
+      .upload(filePath, compressed.blob, {
+        contentType: 'image/webp',
+        upsert: true,
+        cacheControl: '31536000',
+      });
+
+    if (!error && data?.path) {
+      const { data: urlData } = client.storage
         .from('hero')
-        .upload(filePath, compressed.blob, {
-          contentType: 'image/webp',
-          upsert: true,
-          cacheControl: '31536000',
-        });
+        .getPublicUrl(data.path);
 
-      if (!error && data?.path) {
-        const { data: urlData } = supabase.storage
-          .from('hero')
-          .getPublicUrl(data.path);
+      onProgress?.('Uploaded to Supabase successfully!', 100);
 
-        onProgress?.('Uploaded to Supabase successfully!', 100);
-
-        return {
-          url: urlData.publicUrl,
-          width: compressed.width,
-          height: compressed.height,
-          orientation: compressed.orientation,
-          compressedSize: compressed.compressedSize,
-          originalSize: file.size,
-          savingsPercent: savings,
-          storage: 'supabase',
-          profile,
-        };
-      } else {
-        console.warn('Supabase hero bucket upload notice:', error?.message);
-        // If the 'hero' bucket is not created or RLS requires auth, fallback to persistent Data URL
-        const dataUrl = await blobToDataUrl(compressed.blob);
-        onProgress?.('Ready (Local Fallback)', 100);
-        return {
-          url: dataUrl,
-          width: compressed.width,
-          height: compressed.height,
-          orientation: compressed.orientation,
-          compressedSize: compressed.compressedSize,
-          originalSize: file.size,
-          savingsPercent: savings,
-          storage: 'fallback',
-          profile,
-          warning: error?.message || 'Supabase bucket not reachable, used instant local fallback',
-        };
-      }
-    } catch (err: unknown) {
-      console.error('Supabase upload exception:', err);
-      const dataUrl = await blobToDataUrl(compressed.blob);
       return {
-        url: dataUrl,
+        url: urlData.publicUrl,
         width: compressed.width,
         height: compressed.height,
         orientation: compressed.orientation,
         compressedSize: compressed.compressedSize,
         originalSize: file.size,
         savingsPercent: savings,
-        storage: 'fallback',
+        storage: 'supabase',
         profile,
-        warning: err instanceof Error ? err.message : 'Upload failed, used local fallback',
       };
+    } else {
+      console.error('Supabase hero bucket upload error:', error);
+      const errMsg = error?.message || 'Access Denied / RLS Policy';
+      throw new Error(
+        `Supabase upload rejected: "${errMsg}". ` +
+        `Please ensure the "hero" bucket exists in Supabase and that public/anon uploads are permitted by an RLS policy.`
+      );
     }
+  } catch (err: unknown) {
+    console.error('Supabase upload exception:', err);
+    throw err;
   }
-
-  // Fallback if Supabase credentials are not yet set
-  const dataUrl = await blobToDataUrl(compressed.blob);
-  onProgress?.('Ready (Local Fallback)', 100);
-  return {
-    url: dataUrl,
-    width: compressed.width,
-    height: compressed.height,
-    orientation: compressed.orientation,
-    compressedSize: compressed.compressedSize,
-    originalSize: file.size,
-    savingsPercent: savings,
-    storage: 'fallback',
-    profile,
-  };
 }
 
 /**

@@ -60,6 +60,28 @@ const STORAGE_KEYS = {
   ADMIN: 'wrishu_admin_session_v1',
 };
 
+// Safe localStorage write wrapper that prevents QuotaExceededError from crashing React root
+function safeSetLocalStorage(key: string, value: string): boolean {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch (err) {
+    console.warn(`[LocalStorage] Failed to save key "${key}" (quota or permission):`, err);
+    return false;
+  }
+}
+
+// Strip oversized base64 data URLs to protect browser storage quota (< 5MB limit)
+function sanitizeSlideForStorage(slide: HeroSlide): HeroSlide {
+  const isBase64 = (url?: string) => Boolean(url && url.startsWith('data:image/') && url.length > 2000);
+  return {
+    ...slide,
+    image_url: isBase64(slide.image_url) ? '' : slide.image_url,
+    landscape_url: isBase64(slide.landscape_url) ? '' : slide.landscape_url,
+    portrait_url: isBase64(slide.portrait_url) ? '' : slide.portrait_url,
+  };
+}
+
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [categories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(() => {
@@ -68,15 +90,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const parsed: HeroSlide[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // If already has modern target structure, return it
-          const hasTargets = parsed.some((s) => Boolean(s.target));
-          if (hasTargets) {
-            return parsed.map((s) => ({
-              ...s,
-              target: s.target || 'landscape',
-              image_url: s.image_url || s.landscape_url || s.portrait_url || '',
-            }));
-          }
+          // Sanitize any existing bloated base64 data from previous failed uploads
+          return parsed.map((s) => {
+            const sanitized = sanitizeSlideForStorage(s);
+            return {
+              ...sanitized,
+              target: sanitized.target || 'landscape',
+              image_url: sanitized.image_url || sanitized.landscape_url || sanitized.portrait_url || '',
+            };
+          });
         }
       } catch {
         return INITIAL_HERO_SLIDES;
@@ -127,34 +149,36 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Sync to local storage for persistence across reloads
+  // Sync to local storage for persistence across reloads using safeSetLocalStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PHOTOS, JSON.stringify(photos));
+    safeSetLocalStorage(STORAGE_KEYS.PHOTOS, JSON.stringify(photos));
   }, [photos]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.HERO, JSON.stringify(heroSlides));
+    // Sanitize before saving: never save megabytes of base64 data to localStorage
+    const cleanSlides = heroSlides.map(sanitizeSlideForStorage);
+    safeSetLocalStorage(STORAGE_KEYS.HERO, JSON.stringify(cleanSlides));
   }, [heroSlides]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
+    safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
   }, [projects]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.STATS, JSON.stringify(stats));
+    safeSetLocalStorage(STORAGE_KEYS.STATS, JSON.stringify(stats));
   }, [stats]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
+    safeSetLocalStorage(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
   }, [settings]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
+    safeSetLocalStorage(STORAGE_KEYS.MESSAGES, JSON.stringify(messages));
   }, [messages]);
 
   useEffect(() => {
     if (adminUser) {
-      localStorage.setItem(STORAGE_KEYS.ADMIN, JSON.stringify(adminUser));
+      safeSetLocalStorage(STORAGE_KEYS.ADMIN, JSON.stringify(adminUser));
     } else {
       localStorage.removeItem(STORAGE_KEYS.ADMIN);
     }
@@ -164,8 +188,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (!error && session?.user) {
         setAdminUser({
           id: session.user.id,
           email: session.user.email || 'admin@wrishu.com',
@@ -174,15 +198,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         setAdminUser({
           id: session.user.id,
           email: session.user.email || 'admin@wrishu.com',
           role: 'admin',
         });
-      } else {
-        setAdminUser(null);
+      } else if (event === 'SIGNED_OUT') {
+        // Never log out a local fallback admin unless explicitly signing out
+        setAdminUser((current) => (current?.id === 'admin-local-1' ? current : null));
       }
     });
 
