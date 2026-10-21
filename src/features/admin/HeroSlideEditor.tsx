@@ -19,6 +19,10 @@ import {
   AlertTriangle,
   Copy,
   Check,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown,
 } from 'lucide-react';
 import type { HeroSlide, HeroSlideTarget } from '../../types/index.ts';
 import {
@@ -365,6 +369,7 @@ export const HeroSlideEditor: React.FC = () => {
     updateHeroSlide,
     addHeroSlide,
     deleteHeroSlide,
+    reorderHeroSlides,
     cloudSyncStatus,
     cloudSyncError,
     syncHeroSlidesToCloud,
@@ -376,6 +381,9 @@ export const HeroSlideEditor: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [showSqlHelp, setShowSqlHelp] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [orderSaveFeedback, setOrderSaveFeedback] = useState<string | null>(null);
 
   const handleSyncToCloud = async () => {
     setIsSyncing(true);
@@ -416,6 +424,9 @@ export const HeroSlideEditor: React.FC = () => {
       portrait_url: formState.target === 'portrait' ? formState.image_url : formState.portrait_url || formState.image_url,
     };
     updateHeroSlide(id, updated);
+    if (formState.order !== undefined) {
+      handleIndexChange(id, formState.order);
+    }
     setEditingId(null);
   };
 
@@ -429,22 +440,118 @@ export const HeroSlideEditor: React.FC = () => {
       target: targetType,
       landscape_url: '',
       portrait_url: '',
-      order: heroSlides.length + 1,
+      order: sortedSlides.length + 1,
       active: true,
     };
     addHeroSlide(newSlide);
     handleEdit(newSlide);
   };
 
-  // Filter slides according to selected tab filter
+  // Filter slides according to selected tab filter and sort strictly by sequence order
   const filteredSlides = heroSlides.filter((slide) => {
     const slideTarget = slide.target || (slide.portrait_url && !slide.landscape_url ? 'portrait' : 'landscape');
     if (activeFilter === 'all') return true;
     return slideTarget === activeFilter;
   });
 
+  const sortedSlides = [...filteredSlides].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   const desktopCount = heroSlides.filter((s) => (s.target || 'landscape') === 'landscape').length;
   const mobileCount = heroSlides.filter((s) => s.target === 'portrait' || (s.portrait_url && !s.landscape_url)).length;
+
+  const handleReorder = (newOrderedSubset: HeroSlide[]) => {
+    // Re-assign sequential order numbers (1, 2, 3...)
+    const updatedSubset = newOrderedSubset.map((slide, idx) => ({
+      ...slide,
+      order: idx + 1,
+    }));
+
+    let newFullList: HeroSlide[];
+    if (activeFilter === 'all') {
+      newFullList = updatedSubset;
+    } else {
+      const subsetIds = new Set(updatedSubset.map((s) => s.id));
+      const nonSubset = heroSlides.filter((s) => !subsetIds.has(s.id));
+      newFullList = [...updatedSubset, ...nonSubset];
+    }
+
+    reorderHeroSlides(newFullList);
+    setOrderSaveFeedback('Sequence updated & synced to Supabase cloud!');
+    setTimeout(() => setOrderSaveFeedback(null), 3000);
+  };
+
+  const handleMoveUp = (index: number) => {
+    if (index <= 0) return;
+    const currentList = [...sortedSlides];
+    const temp = currentList[index];
+    currentList[index] = currentList[index - 1];
+    currentList[index - 1] = temp;
+    handleReorder(currentList);
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index >= sortedSlides.length - 1) return;
+    const currentList = [...sortedSlides];
+    const temp = currentList[index];
+    currentList[index] = currentList[index + 1];
+    currentList[index + 1] = temp;
+    handleReorder(currentList);
+  };
+
+  const handleIndexChange = (slideId: string, newPosition1Based: number) => {
+    const currentList = [...sortedSlides];
+    const oldIndex = currentList.findIndex((s) => s.id === slideId);
+    if (oldIndex === -1) return;
+
+    const targetIndex = Math.max(0, Math.min(newPosition1Based - 1, currentList.length - 1));
+    if (oldIndex === targetIndex) return;
+
+    const [movedItem] = currentList.splice(oldIndex, 1);
+    currentList.splice(targetIndex, 0, movedItem);
+
+    handleReorder(currentList);
+  };
+
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedId(id);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverId !== id) {
+      setDragOverId(id);
+    }
+  };
+
+  const handleDragEnd = () => {
+    setDraggedId(null);
+    setDragOverId(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    if (!draggedId || draggedId === targetId) {
+      setDraggedId(null);
+      setDragOverId(null);
+      return;
+    }
+
+    const currentList = [...sortedSlides];
+    const sourceIndex = currentList.findIndex((s) => s.id === draggedId);
+    const targetIndex = currentList.findIndex((s) => s.id === targetId);
+
+    if (sourceIndex !== -1 && targetIndex !== -1) {
+      const [movedItem] = currentList.splice(sourceIndex, 1);
+      currentList.splice(targetIndex, 0, movedItem);
+      handleReorder(currentList);
+    }
+
+    setDraggedId(null);
+    setDragOverId(null);
+  };
 
   return (
     <div>
@@ -677,21 +784,173 @@ export const HeroSlideEditor: React.FC = () => {
         </button>
       </div>
 
+      {/* Reordering Instructions & Realtime Feedback Toolbar */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '10px',
+          marginBottom: '16px',
+          padding: '10px 14px',
+          backgroundColor: '#151515',
+          border: '1px solid #262626',
+          borderRadius: '6px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: '#AAA' }}>
+          <ArrowUpDown size={14} color="var(--color-gold)" />
+          <span>
+            <strong>Reorder Hero Slides:</strong> Drag any slide using the <GripVertical size={13} style={{ display: 'inline', verticalAlign: 'middle', color: 'var(--color-gold)' }} /> handle, click the <strong>↑ / ↓</strong> arrows, or pick from the <strong>Pos: #</strong> dropdown. Order saves & syncs automatically!
+          </span>
+        </div>
+
+        {orderSaveFeedback && (
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '0.76rem',
+              color: '#4ade80',
+              fontWeight: 600,
+              backgroundColor: 'rgba(74, 222, 128, 0.1)',
+              padding: '3px 10px',
+              borderRadius: '4px',
+              border: '1px solid rgba(74, 222, 128, 0.25)',
+            }}
+          >
+            <CheckCircle2 size={13} color="#4ade80" />
+            <span>{orderSaveFeedback}</span>
+          </div>
+        )}
+      </div>
+
       {/* Slides List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        {filteredSlides.map((slide, idx) => {
+        {sortedSlides.map((slide, idx) => {
           const isEditing = editingId === slide.id;
           const slideTarget: HeroSlideTarget = slide.target || (slide.portrait_url && !slide.landscape_url ? 'portrait' : 'landscape');
           const isPortrait = slideTarget === 'portrait';
           const slideImage = slide.image_url || slide.landscape_url || slide.portrait_url || '';
+          const isBeingDragged = draggedId === slide.id;
+          const isDropTarget = dragOverId === slide.id && draggedId !== slide.id;
 
           return (
-            <div key={slide.id} className="admin-card" style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                  <span style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-gold)' }}>
-                    #{idx + 1}
-                  </span>
+            <div
+              key={slide.id}
+              className="admin-card"
+              draggable={!isEditing}
+              onDragStart={(e) => handleDragStart(e, slide.id)}
+              onDragOver={(e) => handleDragOver(e, slide.id)}
+              onDragEnd={handleDragEnd}
+              onDrop={(e) => handleDrop(e, slide.id)}
+              style={{
+                padding: '20px',
+                opacity: isBeingDragged ? 0.35 : 1,
+                border: isDropTarget
+                  ? '2px solid var(--color-gold)'
+                  : isBeingDragged
+                  ? '1px dashed #666'
+                  : '1px solid rgba(255, 255, 255, 0.08)',
+                boxShadow: isDropTarget ? '0 0 16px rgba(200, 145, 74, 0.25)' : 'none',
+                transform: isBeingDragged ? 'scale(0.99)' : 'none',
+                transition: 'border 150ms ease, box-shadow 150ms ease, opacity 150ms ease',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* Drag Handle & Ordering Arrows */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <div
+                      title="Drag to reorder slide"
+                      style={{
+                        cursor: isEditing ? 'default' : 'grab',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '6px 4px',
+                        color: isEditing ? '#444' : '#888',
+                        borderRadius: '4px',
+                        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                      }}
+                    >
+                      <GripVertical size={18} />
+                    </div>
+
+                    {/* Prominent Serial Badge */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(200, 145, 74, 0.12)',
+                        border: '1px solid rgba(200, 145, 74, 0.3)',
+                        borderRadius: '6px',
+                        padding: '4px 8px',
+                        minWidth: '42px',
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: '1.05rem',
+                          fontWeight: 800,
+                          color: 'var(--color-gold)',
+                          lineHeight: 1,
+                        }}
+                      >
+                        #{idx + 1}
+                      </span>
+                      <span style={{ fontSize: '0.58rem', color: '#999', marginTop: '2px', fontWeight: 600 }}>
+                        ORDER
+                      </span>
+                    </div>
+
+                    {/* Step Up / Step Down Buttons */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveUp(idx)}
+                        disabled={idx === 0}
+                        title="Move Slide Up (plays earlier)"
+                        style={{
+                          background: idx === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.07)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '3px',
+                          padding: '2px 4px',
+                          color: idx === 0 ? '#444' : '#DDD',
+                          cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <ChevronUp size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleMoveDown(idx)}
+                        disabled={idx === sortedSlides.length - 1}
+                        title="Move Slide Down (plays later)"
+                        style={{
+                          background: idx === sortedSlides.length - 1 ? 'transparent' : 'rgba(255, 255, 255, 0.07)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: '3px',
+                          padding: '2px 4px',
+                          color: idx === sortedSlides.length - 1 ? '#444' : '#DDD',
+                          cursor: idx === sortedSlides.length - 1 ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <ChevronDown size={12} />
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Thumbnail */}
                   <div
@@ -738,6 +997,32 @@ export const HeroSlideEditor: React.FC = () => {
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {/* Direct Position / Index Selector Dropdown */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginRight: '6px' }}>
+                    <label style={{ fontSize: '0.72rem', color: '#777', margin: 0 }}>Pos:</label>
+                    <select
+                      value={idx + 1}
+                      onChange={(e) => handleIndexChange(slide.id, parseInt(e.target.value, 10))}
+                      title="Jump directly to sequence position"
+                      style={{
+                        backgroundColor: '#181818',
+                        color: 'var(--color-gold)',
+                        border: '1px solid #444',
+                        borderRadius: '4px',
+                        padding: '3px 8px',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {sortedSlides.map((_, pIdx) => (
+                        <option key={pIdx + 1} value={pIdx + 1}>
+                          #{pIdx + 1} {pIdx === 0 ? '(1st)' : pIdx === sortedSlides.length - 1 ? '(Last)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <button
                     onClick={() => updateHeroSlide(slide.id, { active: !slide.active })}
                     style={{ background: 'none', border: 'none', color: slide.active ? 'var(--color-gold)' : '#666', cursor: 'pointer' }}
@@ -769,6 +1054,30 @@ export const HeroSlideEditor: React.FC = () => {
               {/* Editing Form */}
               {isEditing && (
                 <div style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+                  {/* Sequence Position Selector in Edit Form */}
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '0.78rem', color: 'var(--color-gold)', display: 'block', marginBottom: '6px' }}>
+                      Playback Sequence Position
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <select
+                        className="form-input"
+                        style={{ maxWidth: '160px', fontWeight: 600, padding: '6px 10px' }}
+                        value={formState.order ?? (idx + 1)}
+                        onChange={(e) => setFormState({ ...formState, order: parseInt(e.target.value, 10) })}
+                      >
+                        {sortedSlides.map((_, pIdx) => (
+                          <option key={pIdx + 1} value={pIdx + 1}>
+                            Position #{pIdx + 1} {pIdx === 0 ? '(First slide)' : pIdx === sortedSlides.length - 1 ? '(Last slide)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <span style={{ fontSize: '0.74rem', color: '#888' }}>
+                        Controls where this slide appears in the slideshow playback sequence
+                      </span>
+                    </div>
+                  </div>
+
                   {/* Target Device Selector */}
                   <div className="form-group" style={{ marginBottom: '16px' }}>
                     <label style={{ fontSize: '0.78rem', color: 'var(--color-gold)', display: 'block', marginBottom: '8px' }}>

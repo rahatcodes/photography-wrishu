@@ -43,6 +43,9 @@ export const HeroSlider: React.FC = () => {
     activeSlides = heroSlides.filter((s) => s.active);
   }
 
+  // Sort strictly by sequential order so the slider displays and cycles in the admin-specified sequence
+  activeSlides.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
   const total = activeSlides.length;
 
   const nextSlide = useCallback(() => {

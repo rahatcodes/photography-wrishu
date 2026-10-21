@@ -42,6 +42,7 @@ interface DataContextType {
   updateHeroSlide: (id: string, updates: Partial<HeroSlide>) => void;
   addHeroSlide: (slide: HeroSlide) => void;
   deleteHeroSlide: (id: string) => void;
+  reorderHeroSlides: (newSlides: HeroSlide[]) => void;
   updateStats: (newStats: StatItem[]) => void;
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
@@ -100,14 +101,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           );
 
           if (hasValidUrls) {
-            return parsed.map((s) => {
-              const sanitized = sanitizeSlideForStorage(s);
-              return {
-                ...sanitized,
-                target: sanitized.target || 'landscape',
-                image_url: sanitized.image_url || sanitized.landscape_url || sanitized.portrait_url || '',
-              };
-            });
+            return parsed
+              .map((s) => {
+                const sanitized = sanitizeSlideForStorage(s);
+                return {
+                  ...sanitized,
+                  target: sanitized.target || 'landscape',
+                  image_url: sanitized.image_url || sanitized.landscape_url || sanitized.portrait_url || '',
+                };
+              })
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
           }
         }
       } catch {
@@ -461,6 +464,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
+  const reorderHeroSlides = (newSlides: HeroSlide[]) => {
+    setHeroSlides(newSlides);
+    safeSetLocalStorage(STORAGE_KEYS.HERO, JSON.stringify(newSlides.map(sanitizeSlideForStorage)));
+    syncHeroSlidesToCloud(newSlides);
+  };
+
   const updateStats = (newStats: StatItem[]) => {
     setStats(newStats);
   };
@@ -523,6 +532,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         updateHeroSlide,
         addHeroSlide,
         deleteHeroSlide,
+        reorderHeroSlides,
         updateStats,
         addProject,
         updateProject,
