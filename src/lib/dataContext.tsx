@@ -64,7 +64,25 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [categories] = useState<Category[]>(INITIAL_CATEGORIES);
   const [heroSlides, setHeroSlides] = useState<HeroSlide[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.HERO);
-    return saved ? JSON.parse(saved) : INITIAL_HERO_SLIDES;
+    if (saved) {
+      try {
+        const parsed: HeroSlide[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // If already has modern target structure, return it
+          const hasTargets = parsed.some((s) => Boolean(s.target));
+          if (hasTargets) {
+            return parsed.map((s) => ({
+              ...s,
+              target: s.target || 'landscape',
+              image_url: s.image_url || s.landscape_url || s.portrait_url || '',
+            }));
+          }
+        }
+      } catch {
+        return INITIAL_HERO_SLIDES;
+      }
+    }
+    return INITIAL_HERO_SLIDES;
   });
   const [photos, setPhotos] = useState<Photo[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PHOTOS);

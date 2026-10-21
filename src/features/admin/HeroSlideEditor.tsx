@@ -10,27 +10,22 @@ import {
   CheckCircle2,
   Loader2,
   Database,
-  ExternalLink,
-  Sliders,
+  Monitor,
+  Smartphone,
+  SlidersHorizontal,
 } from 'lucide-react';
-import type { HeroSlide } from '../../types/index.ts';
+import type { HeroSlide, HeroSlideTarget } from '../../types/index.ts';
 import { uploadHeroImageToSupabase, UploadHeroResult } from '../../lib/storageService.ts';
 
-interface HeroImageUploaderProps {
-  label: string;
-  sublabel: string;
+interface SingleImageUploaderProps {
   currentUrl: string;
-  orientation: 'landscape' | 'portrait';
-  aspectHint: string;
+  target: HeroSlideTarget;
   onUrlChange: (newUrl: string) => void;
 }
 
-const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
-  label,
-  sublabel,
+const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
   currentUrl,
-  orientation,
-  aspectHint,
+  target,
   onUrlChange,
 }) => {
   const [dragOver, setDragOver] = useState(false);
@@ -40,6 +35,8 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
   const [lastResult, setLastResult] = useState<UploadHeroResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const isPortrait = target === 'portrait';
+
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Please upload an image file (PNG, JPG, WebP, etc.).');
@@ -47,12 +44,12 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
     }
 
     setIsUploading(true);
-    setProgressStage('Starting compression...');
-    setProgressPercent(10);
+    setProgressStage('Compressing image (< 100 KB)...');
+    setProgressPercent(15);
     setLastResult(null);
 
     try {
-      const result = await uploadHeroImageToSupabase(file, orientation, (stage, pct) => {
+      const result = await uploadHeroImageToSupabase(file, target, (stage, pct) => {
         setProgressStage(stage);
         setProgressPercent(pct);
       });
@@ -79,11 +76,13 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
         gap: '12px',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#FFF' }}>{label}</div>
+          <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#FFF' }}>
+            {isPortrait ? '📱 Phone / Mobile Visual' : '🖥️ Desktop / Tablet Visual'}
+          </div>
           <div style={{ fontSize: '0.74rem', color: '#888' }}>
-            {sublabel} · <span style={{ color: 'var(--color-gold)' }}>{aspectHint}</span>
+            Optimal Ratio: <span style={{ color: 'var(--color-gold)' }}>{isPortrait ? '9:16 / 4:5 (Vertical)' : '16:9 / 3:2 (Horizontal)'}</span>
           </div>
         </div>
         <span
@@ -105,16 +104,15 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
       </div>
 
       {/* Preview Box & Dropzone */}
-      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: '14px', alignItems: 'center' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isPortrait ? '100px 1fr' : '140px 1fr', gap: '14px', alignItems: 'center' }}>
         <div
           style={{
             width: '100%',
-            height: orientation === 'landscape' ? '85px' : '110px',
+            height: isPortrait ? '130px' : '85px',
             backgroundColor: '#0f0f0f',
             border: '1px solid #333',
             borderRadius: '4px',
             overflow: 'hidden',
-            position: 'relative',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -123,7 +121,7 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
           {currentUrl ? (
             <img
               src={currentUrl}
-              alt={label}
+              alt="Slide Preview"
               style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
@@ -150,7 +148,7 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
             border: `1px dashed ${dragOver ? 'var(--color-gold)' : '#444'}`,
             backgroundColor: dragOver ? 'rgba(200, 145, 74, 0.08)' : '#121212',
             borderRadius: '4px',
-            padding: '14px',
+            padding: '16px',
             textAlign: 'center',
             cursor: 'pointer',
             transition: 'all 150ms ease',
@@ -174,12 +172,12 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <UploadCloud size={20} color="var(--color-gold)" />
-              <span style={{ fontSize: '0.78rem', color: '#EEE', fontWeight: 600 }}>
-                Drop image here or click to upload
+              <UploadCloud size={22} color="var(--color-gold)" />
+              <span style={{ fontSize: '0.8rem', color: '#EEE', fontWeight: 600 }}>
+                Upload {isPortrait ? 'Mobile' : 'Desktop'} Image
               </span>
               <span style={{ fontSize: '0.7rem', color: '#777' }}>
-                Auto-compressed strictly below 100 KB for zero-lag hero delivery
+                Auto-compressed strictly below 100 KB and uploaded to Supabase
               </span>
             </div>
           )}
@@ -228,7 +226,7 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
         </div>
       )}
 
-      {/* Direct URL input fallback */}
+      {/* Direct Image URL input */}
       <div>
         <label style={{ fontSize: '0.7rem', color: '#777', display: 'block', marginBottom: '4px' }}>
           Direct Image URL:
@@ -248,26 +246,40 @@ const HeroImageUploader: React.FC<HeroImageUploaderProps> = ({
 
 export const HeroSlideEditor: React.FC = () => {
   const { heroSlides, updateHeroSlide, addHeroSlide, deleteHeroSlide } = useData();
+  const [activeFilter, setActiveFilter] = useState<'all' | 'landscape' | 'portrait'>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<Partial<HeroSlide>>({});
 
   const handleEdit = (slide: HeroSlide) => {
     setEditingId(slide.id);
-    setFormState({ ...slide });
+    setFormState({
+      ...slide,
+      target: slide.target || (slide.portrait_url && !slide.landscape_url ? 'portrait' : 'landscape'),
+      image_url: slide.image_url || slide.landscape_url || slide.portrait_url || '',
+    });
   };
 
   const handleSave = (id: string) => {
-    updateHeroSlide(id, formState);
+    const updated: Partial<HeroSlide> = {
+      ...formState,
+      // Keep legacy fields populated so existing code is always backward-compatible
+      landscape_url: formState.target === 'landscape' ? formState.image_url : formState.landscape_url || formState.image_url,
+      portrait_url: formState.target === 'portrait' ? formState.image_url : formState.portrait_url || formState.image_url,
+    };
+    updateHeroSlide(id, updated);
     setEditingId(null);
   };
 
-  const handleAddNew = () => {
+  const handleAddNew = (targetType: HeroSlideTarget) => {
+    const isPortrait = targetType === 'portrait';
     const newSlide: HeroSlide = {
-      id: `hero-${Date.now()}`,
-      title: 'Cinematic Match Coverage',
-      subtitle: 'International Sports Storytelling',
-      landscape_url: heroSlides[0]?.landscape_url || '',
-      portrait_url: heroSlides[0]?.portrait_url || '',
+      id: `hero-${isPortrait ? 'mob' : 'desk'}-${Date.now()}`,
+      title: isPortrait ? 'Mobile Story Visual' : 'Cinematic Match Coverage',
+      subtitle: isPortrait ? 'Phone Exclusive Headline' : 'International Sports Storytelling',
+      image_url: '',
+      target: targetType,
+      landscape_url: '',
+      portrait_url: '',
       order: heroSlides.length + 1,
       active: true,
     };
@@ -275,39 +287,173 @@ export const HeroSlideEditor: React.FC = () => {
     handleEdit(newSlide);
   };
 
+  // Filter slides according to selected tab filter
+  const filteredSlides = heroSlides.filter((slide) => {
+    const slideTarget = slide.target || (slide.portrait_url && !slide.landscape_url ? 'portrait' : 'landscape');
+    if (activeFilter === 'all') return true;
+    return slideTarget === activeFilter;
+  });
+
+  const desktopCount = heroSlides.filter((s) => (s.target || 'landscape') === 'landscape').length;
+  const mobileCount = heroSlides.filter((s) => s.target === 'portrait' || (s.portrait_url && !s.landscape_url)).length;
+
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      {/* Top Header & Action Controls */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
         <div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#FFF' }}>Hero Slider Slides</h2>
-          <p style={{ color: '#888', fontSize: '0.85rem' }}>
-            High-impact visual slider powered by <strong>Supabase Public Storage bucket (hero)</strong> for instant load speeds,
-            with responsive dual delivery: landscape for desktops/tablets, portrait for mobile devices.
+          <p style={{ color: '#888', fontSize: '0.85rem', maxWidth: '750px', marginTop: '4px' }}>
+            Manage separate slides for <strong>PC / Desktop</strong> and <strong>Phone / Mobile</strong>.
+            Each visual has its own independent title, caption, and image uploaded directly to the <strong>Supabase Public Storage (`hero`) bucket</strong>.
           </p>
         </div>
-        <button onClick={handleAddNew} className="btn btn-gold btn-sm">
-          <Plus size={16} />
-          <span>Add Slide</span>
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => handleAddNew('landscape')}
+            className="btn btn-gold btn-sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <Monitor size={15} />
+            <span>+ Add Desktop Slide</span>
+          </button>
+          <button
+            onClick={() => handleAddNew('portrait')}
+            className="btn btn-sm"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', borderColor: 'var(--color-gold)', color: 'var(--color-gold)' }}
+          >
+            <Smartphone size={15} />
+            <span>+ Add Phone Slide</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Target Filter Tabs */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+          marginBottom: '20px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+          paddingBottom: '12px',
+        }}
+      >
+        <button
+          onClick={() => setActiveFilter('all')}
+          style={{
+            background: activeFilter === 'all' ? 'var(--color-gold)' : 'transparent',
+            color: activeFilter === 'all' ? '#000' : '#AAA',
+            border: 'none',
+            padding: '6px 14px',
+            borderRadius: '4px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            transition: 'all 150ms ease',
+          }}
+        >
+          All Slides ({heroSlides.length})
+        </button>
+        <button
+          onClick={() => setActiveFilter('landscape')}
+          style={{
+            background: activeFilter === 'landscape' ? 'var(--color-gold)' : 'transparent',
+            color: activeFilter === 'landscape' ? '#000' : '#AAA',
+            border: 'none',
+            padding: '6px 14px',
+            borderRadius: '4px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 150ms ease',
+          }}
+        >
+          <Monitor size={14} />
+          <span>Desktop Slides ({desktopCount})</span>
+        </button>
+        <button
+          onClick={() => setActiveFilter('portrait')}
+          style={{
+            background: activeFilter === 'portrait' ? 'var(--color-gold)' : 'transparent',
+            color: activeFilter === 'portrait' ? '#000' : '#AAA',
+            border: 'none',
+            padding: '6px 14px',
+            borderRadius: '4px',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            transition: 'all 150ms ease',
+          }}
+        >
+          <Smartphone size={14} />
+          <span>Phone Slides ({mobileCount})</span>
         </button>
       </div>
 
+      {/* Slides List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        {heroSlides.map((slide, idx) => {
+        {filteredSlides.map((slide, idx) => {
           const isEditing = editingId === slide.id;
+          const slideTarget: HeroSlideTarget = slide.target || (slide.portrait_url && !slide.landscape_url ? 'portrait' : 'landscape');
+          const isPortrait = slideTarget === 'portrait';
+          const slideImage = slide.image_url || slide.landscape_url || slide.portrait_url || '';
 
           return (
             <div key={slide.id} className="admin-card" style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                   <span style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-gold)' }}>
                     #{idx + 1}
                   </span>
-                  <div style={{ width: '100px', height: '60px', overflow: 'hidden', borderRadius: '4px', background: '#222' }}>
-                    <img src={slide.landscape_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+
+                  {/* Thumbnail */}
+                  <div
+                    style={{
+                      width: isPortrait ? '50px' : '90px',
+                      height: '56px',
+                      overflow: 'hidden',
+                      borderRadius: '4px',
+                      background: '#222',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {slideImage ? (
+                      <img src={slideImage} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#555' }}>
+                        No Image
+                      </div>
+                    )}
                   </div>
+
                   <div>
-                    <h3 style={{ fontSize: '1rem', color: '#FFF', fontWeight: 600 }}>{slide.title}</h3>
-                    <p style={{ fontSize: '0.82rem', color: '#888' }}>{slide.subtitle || 'No subtitle'}</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          padding: '2px 6px',
+                          borderRadius: '3px',
+                          backgroundColor: isPortrait ? 'rgba(56, 189, 248, 0.15)' : 'rgba(200, 145, 74, 0.2)',
+                          color: isPortrait ? '#38bdf8' : 'var(--color-gold)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        {isPortrait ? <Smartphone size={11} /> : <Monitor size={11} />}
+                        {isPortrait ? 'PHONE' : 'DESKTOP'}
+                      </span>
+                      <h3 style={{ fontSize: '0.95rem', color: '#FFF', fontWeight: 600 }}>{slide.title}</h3>
+                    </div>
+                    <p style={{ fontSize: '0.8rem', color: '#888' }}>{slide.subtitle || 'No caption'}</p>
                   </div>
                 </div>
 
@@ -340,12 +486,67 @@ export const HeroSlideEditor: React.FC = () => {
                 </div>
               </div>
 
-              {/* Editing Drawer Form with Direct Supabase Image Uploads */}
+              {/* Editing Form */}
               {isEditing && (
                 <div style={{ marginTop: '20px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+                  {/* Target Device Selector */}
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '0.78rem', color: 'var(--color-gold)', display: 'block', marginBottom: '8px' }}>
+                      Slide Device Type
+                    </label>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setFormState({ ...formState, target: 'landscape' })}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '4px',
+                          border: `1px solid ${formState.target === 'landscape' ? 'var(--color-gold)' : '#333'}`,
+                          backgroundColor: formState.target === 'landscape' ? 'rgba(200, 145, 74, 0.15)' : '#181818',
+                          color: formState.target === 'landscape' ? '#FFF' : '#888',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          fontWeight: 600,
+                          fontSize: '0.82rem',
+                        }}
+                      >
+                        <Monitor size={16} color={formState.target === 'landscape' ? 'var(--color-gold)' : '#888'} />
+                        <span>🖥️ Desktop / Landscape (&gt;= 768px)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setFormState({ ...formState, target: 'portrait' })}
+                        style={{
+                          flex: 1,
+                          padding: '10px',
+                          borderRadius: '4px',
+                          border: `1px solid ${formState.target === 'portrait' ? '#38bdf8' : '#333'}`,
+                          backgroundColor: formState.target === 'portrait' ? 'rgba(56, 189, 248, 0.12)' : '#181818',
+                          color: formState.target === 'portrait' ? '#FFF' : '#888',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '8px',
+                          fontWeight: 600,
+                          fontSize: '0.82rem',
+                        }}
+                      >
+                        <Smartphone size={16} color={formState.target === 'portrait' ? '#38bdf8' : '#888'} />
+                        <span>📱 Phone / Portrait (&lt; 768px)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Title Input */}
                   <div className="form-group" style={{ marginBottom: '16px' }}>
                     <label style={{ fontSize: '0.78rem', color: 'var(--color-gold)', display: 'block', marginBottom: '6px' }}>
-                      Slide Title / Headline
+                      {formState.target === 'portrait' ? 'Phone Headline' : 'Desktop Headline'}
                     </label>
                     <input
                       type="text"
@@ -353,12 +554,14 @@ export const HeroSlideEditor: React.FC = () => {
                       style={{ textAlign: 'left' }}
                       value={formState.title || ''}
                       onChange={(e) => setFormState({ ...formState, title: e.target.value })}
+                      placeholder={formState.target === 'portrait' ? 'e.g. Intense Focus: Every Second Counts' : 'e.g. Shoulder to shoulder, carrying Bangladesh responsibility'}
                     />
                   </div>
 
+                  {/* Caption / Subtitle Input */}
                   <div className="form-group" style={{ marginBottom: '20px' }}>
                     <label style={{ fontSize: '0.78rem', color: 'var(--color-gold)', display: 'block', marginBottom: '6px' }}>
-                      Subtitle
+                      {formState.target === 'portrait' ? 'Phone Caption / Subtitle' : 'Desktop Subtitle'}
                     </label>
                     <input
                       type="text"
@@ -366,26 +569,16 @@ export const HeroSlideEditor: React.FC = () => {
                       style={{ textAlign: 'left' }}
                       value={formState.subtitle || ''}
                       onChange={(e) => setFormState({ ...formState, subtitle: e.target.value })}
+                      placeholder={formState.target === 'portrait' ? 'e.g. AFC Player Profile Special' : 'e.g. FIFA & AFC International Matches'}
                     />
                   </div>
 
-                  {/* Dual Image Uploaders: Supabase Bucket "hero" */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-                    <HeroImageUploader
-                      label="Landscape Visual"
-                      sublabel="Desktop & Tablet screens (>= 768px)"
-                      aspectHint="16:9 / 3:2"
-                      currentUrl={formState.landscape_url || ''}
-                      orientation="landscape"
-                      onUrlChange={(url) => setFormState((prev) => ({ ...prev, landscape_url: url }))}
-                    />
-                    <HeroImageUploader
-                      label="Portrait Visual"
-                      sublabel="Mobile screens (< 768px)"
-                      aspectHint="9:16 / 4:5"
-                      currentUrl={formState.portrait_url || ''}
-                      orientation="portrait"
-                      onUrlChange={(url) => setFormState((prev) => ({ ...prev, portrait_url: url }))}
+                  {/* Dedicated Image Uploader for this Slide Type */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <SingleImageUploader
+                      currentUrl={formState.image_url || ''}
+                      target={formState.target || 'landscape'}
+                      onUrlChange={(url) => setFormState((prev) => ({ ...prev, image_url: url }))}
                     />
                   </div>
 
@@ -401,6 +594,21 @@ export const HeroSlideEditor: React.FC = () => {
             </div>
           );
         })}
+
+        {filteredSlides.length === 0 && (
+          <div style={{ padding: '40px 20px', textAlign: 'center', backgroundColor: '#141414', borderRadius: '6px', border: '1px dashed #333' }}>
+            <p style={{ color: '#888', fontSize: '0.9rem' }}>
+              No {activeFilter === 'portrait' ? 'phone/mobile' : activeFilter === 'landscape' ? 'desktop' : ''} slides found.
+            </p>
+            <button
+              onClick={() => handleAddNew(activeFilter === 'portrait' ? 'portrait' : 'landscape')}
+              className="btn btn-gold btn-sm"
+              style={{ marginTop: '12px' }}
+            >
+              + Create First {activeFilter === 'portrait' ? 'Phone' : 'Desktop'} Slide
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

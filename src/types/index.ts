@@ -34,14 +34,18 @@ export interface Category {
   description?: string;
 }
 
+export type HeroSlideTarget = 'landscape' | 'portrait';
+
 export interface HeroSlide {
   id: string;
   title: string;
   subtitle?: string;
   cta_label?: string;
   cta_url?: string;
-  landscape_url: string;
-  portrait_url: string;
+  image_url: string;
+  target: HeroSlideTarget; // 'landscape' for PC/desktop/tablet, 'portrait' for phone/mobile
+  landscape_url?: string; // backward-compatibility
+  portrait_url?: string;  // backward-compatibility
   order: number;
   active: boolean;
 }
