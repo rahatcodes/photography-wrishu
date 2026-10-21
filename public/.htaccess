@@ -3,6 +3,9 @@
 # Handles React Router Single Page App (SPA) URLs and High-Performance Caching
 # ------------------------------------------------------------------------------
 
+# Force index.html as the primary directory index (overrides index.php)
+DirectoryIndex index.html index.php
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
   RewriteBase /
