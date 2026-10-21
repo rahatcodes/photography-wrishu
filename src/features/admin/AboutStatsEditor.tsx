@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../../lib/dataContext.tsx';
-import { Save, Plus, Trash2, Camera, UploadCloud, CheckCircle2 } from 'lucide-react';
-import type { StatItem } from '../../types/index.ts';
+import { Save, Plus, Trash2, Camera, UploadCloud, CheckCircle2, Loader2, CloudUpload } from 'lucide-react';
+import type { StatItem, SiteSettings } from '../../types/index.ts';
 import { CircularImageCropperModal } from '../../components/CircularImageCropperModal.tsx';
 
 interface AboutStatsEditorProps {
@@ -9,7 +9,7 @@ interface AboutStatsEditorProps {
 }
 
 export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) => {
-  const { settings, updateSettings, stats, updateStats } = useData();
+  const { settings, updateSettings, stats, updateStats, syncSettingsToCloud } = useData();
 
   const [aboutLabel, setAboutLabel] = useState(settings.about_label);
   const [aboutName, setAboutName] = useState(settings.about_name);
@@ -17,6 +17,21 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
   const [aboutRoles, setAboutRoles] = useState(settings.about_roles);
   const [paragraphs, setParagraphs] = useState<string[]>([...settings.about_paragraphs]);
   const [portraitUrl, setPortraitUrl] = useState(settings.about_portrait_url);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Synchronize when settings are fetched from Supabase cloud database
+  useEffect(() => {
+    if (settings.about_portrait_url) {
+      setPortraitUrl(settings.about_portrait_url);
+    }
+    if (settings.about_name) setAboutName(settings.about_name);
+    if (settings.about_name_gold) setAboutNameGold(settings.about_name_gold);
+    if (settings.about_roles) setAboutRoles(settings.about_roles);
+    if (settings.about_label) setAboutLabel(settings.about_label);
+    if (Array.isArray(settings.about_paragraphs) && settings.about_paragraphs.length > 0) {
+      setParagraphs([...settings.about_paragraphs]);
+    }
+  }, [settings]);
 
   const [statsList, setStatsList] = useState<StatItem[]>([...stats]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,12 +51,19 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
     }
   };
 
-  const handleCropComplete = (newUrl: string) => {
+  const handleCropComplete = async (newUrl: string) => {
     setPortraitUrl(newUrl);
     updateSettings({
       about_portrait_url: newUrl,
     });
-    onNotify('Profile portrait cropped, uploaded, and saved successfully!');
+    const res = await syncSettingsToCloud({
+      about_portrait_url: newUrl,
+    });
+    if (res.success) {
+      onNotify('Profile portrait cropped, uploaded, and published to all devices!');
+    } else {
+      onNotify('Profile portrait saved locally.');
+    }
   };
 
   const handleParagraphChange = (index: number, val: string) => {
@@ -64,17 +86,25 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
     setStatsList(updated);
   };
 
-  const handleSaveAll = () => {
-    updateSettings({
+  const handleSaveAll = async () => {
+    setIsSaving(true);
+    const updatedSettings: Partial<SiteSettings> = {
       about_label: aboutLabel,
       about_name: aboutName,
       about_name_gold: aboutNameGold,
       about_roles: aboutRoles,
       about_paragraphs: paragraphs.filter((p) => p.trim().length > 0),
       about_portrait_url: portraitUrl,
-    });
+    };
+    updateSettings(updatedSettings);
+    const res = await syncSettingsToCloud(updatedSettings);
     updateStats(statsList);
-    onNotify('About section and stats saved successfully!');
+    setIsSaving(false);
+    if (res.success) {
+      onNotify('About section, profile portrait, and stats published to all devices!');
+    } else {
+      onNotify('Saved locally. Note: Check Supabase database policy.');
+    }
   };
 
   return (
@@ -83,12 +113,17 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
         <div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#FFF' }}>About Section & Stats</h2>
           <p style={{ color: '#888', fontSize: '0.85rem' }}>
-            Modify biographical details, highlighted headline, and match count statistics.
+            Modify biographical details, highlighted headline, circular portrait photo, and match count statistics.
           </p>
         </div>
-        <button onClick={handleSaveAll} className="btn btn-gold btn-sm">
-          <Save size={15} />
-          <span>Save Changes</span>
+        <button
+          onClick={handleSaveAll}
+          disabled={isSaving}
+          className="btn btn-gold btn-sm"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 18px', fontWeight: 700 }}
+        >
+          {isSaving ? <Loader2 size={15} className="spin" /> : <CloudUpload size={15} />}
+          <span>{isSaving ? 'Publishing...' : 'Save & Publish to All Devices'}</span>
         </button>
       </div>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useData } from '../../lib/dataContext.tsx';
 import { StatCounter } from '../../components/StatCounter.tsx';
+import { INITIAL_SETTINGS } from '../../lib/mockData.ts';
 
 export const AboutSection: React.FC = () => {
   const { settings, stats } = useData();
@@ -9,6 +10,7 @@ export const AboutSection: React.FC = () => {
   const paragraphs = settings.about_paragraphs || [];
   const initialParagraphs = paragraphs.slice(0, 2);
   const remainingParagraphs = paragraphs.slice(2);
+  const portraitUrl = settings.about_portrait_url || INITIAL_SETTINGS.about_portrait_url;
 
   return (
     <section className="about-section" id="about">
@@ -18,7 +20,7 @@ export const AboutSection: React.FC = () => {
           <div className="about-portrait-wrap">
             <div className="about-portrait-circle">
               <img
-                src={settings.about_portrait_url}
+                src={portraitUrl}
                 alt="Navid Mustasim Wrishu - Portrait"
                 className="about-portrait-img"
                 loading="lazy"

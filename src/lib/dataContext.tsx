@@ -483,25 +483,71 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // Load site_settings from Supabase on startup
+  // Load site_settings from Supabase on startup so ALL devices & visitors see updated profile image and settings
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return;
     let isMounted = true;
+
     const fetchCloudSettings = async () => {
       try {
         const { data, error } = await supabase.from('site_settings').select('*').limit(1).maybeSingle();
+
+        // 1. Check if this browser has an uploaded portrait URL in local storage
+        let localPortrait = '';
+        const localSavedRaw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+        if (localSavedRaw) {
+          try {
+            const parsed = JSON.parse(localSavedRaw);
+            if (parsed?.about_portrait_url && String(parsed.about_portrait_url).startsWith('http')) {
+              localPortrait = String(parsed.about_portrait_url);
+            }
+          } catch {}
+        }
+
         if (!error && data && isMounted) {
+          const cloudPortrait = data.about_portrait_url && String(data.about_portrait_url).startsWith('http')
+            ? String(data.about_portrait_url)
+            : '';
+          const finalPortrait = cloudPortrait || localPortrait;
+
           setSettings(prev => ({
             ...prev,
             ...data,
-            about_paragraphs: Array.isArray(data.about_paragraphs) ? data.about_paragraphs : prev.about_paragraphs,
-            social_links: (data.social_links && typeof data.social_links === 'object') ? data.social_links : prev.social_links,
+            about_portrait_url: finalPortrait || prev.about_portrait_url,
+            about_paragraphs: Array.isArray(data.about_paragraphs) && data.about_paragraphs.length > 0
+              ? data.about_paragraphs
+              : prev.about_paragraphs,
+            social_links: (data.social_links && typeof data.social_links === 'object')
+              ? data.social_links
+              : prev.social_links,
           }));
+
+          // If local storage has a profile picture that the database didn't have, auto-sync it to Supabase!
+          if (localPortrait && !cloudPortrait) {
+            supabase.from('site_settings').upsert([{
+              ...data,
+              id: 'default',
+              about_portrait_url: localPortrait,
+              updated_at: new Date().toISOString(),
+            }]).then(({ error: syncErr }) => {
+              if (!syncErr) {
+                console.log('[DataContext] Successfully auto-synced local profile portrait to Supabase!');
+              }
+            });
+          }
+        } else if (!data && localPortrait) {
+          // Cloud has 0 rows, but local storage has a profile picture: push it to Supabase!
+          supabase.from('site_settings').upsert([{
+            id: 'default',
+            about_portrait_url: localPortrait,
+            updated_at: new Date().toISOString(),
+          }]);
         }
       } catch (err) {
         console.warn('[DataContext] Failed to fetch site_settings:', err);
       }
     };
+
     fetchCloudSettings();
     return () => {
       isMounted = false;
@@ -512,8 +558,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const syncSettingsToCloud = async (newSettings?: Partial<SiteSettings>): Promise<{ success: boolean; error?: string }> => {
     if (!supabase || !isSupabaseConfigured) return { success: false, error: 'Supabase client not configured' };
     try {
-      const merged = { ...settings, ...newSettings, id: 'default', updated_at: new Date().toISOString() };
-      const { error } = await supabase.from('site_settings').upsert([merged]);
+      const current = { ...settings, ...newSettings };
+      const toSave = {
+        id: 'default',
+        logo_top: current.logo_top || 'NAVID MUSTASIM',
+        logo_bottom: current.logo_bottom || 'WRISHU',
+        about_label: current.about_label || 'ABOUT ME',
+        about_name: current.about_name || 'My name is Navid Mustasim',
+        about_name_gold: current.about_name_gold || 'Wrishu',
+        about_roles: current.about_roles || 'Photographer | Traveler | Educator | Entrepreneur',
+        about_paragraphs: Array.isArray(current.about_paragraphs) ? current.about_paragraphs : [],
+        about_portrait_url: current.about_portrait_url || null,
+        contact_quote: current.contact_quote || null,
+        contact_bio: current.contact_bio || null,
+        contact_phone: current.contact_phone || '+880-1686-867-747',
+        contact_email: current.contact_email || 'n.m.wrishu@gmail.com',
+        contact_location: current.contact_location || 'Kallyanpur, Dhaka',
+        map_query: current.map_query || 'Kallyanpur, Dhaka, Bangladesh',
+        footer_quote: current.footer_quote || null,
+        copyright: current.copyright || 'Copyright © 2026 Eruditech. All Rights Reserved.',
+        social_links: current.social_links || { instagram: 'https://instagram.com' },
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase.from('site_settings').upsert([toSave]);
       if (error) {
         console.warn('[DataContext] Failed to sync site_settings:', error.message);
         return { success: false, error: error.message };
