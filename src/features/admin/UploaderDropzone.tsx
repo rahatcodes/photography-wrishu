@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { UploadCloud, CheckCircle2, Server, Globe, Loader2 } from 'lucide-react';
+import { UploadCloud, CheckCircle2, Server, Globe, Loader2, Sparkles } from 'lucide-react';
 import { uploadCatalogImageToR2, UploadR2Result } from '../../lib/storageService.ts';
+import { CompressionProfile, COMPRESSION_PROFILES } from '../../lib/imageCompression.ts';
 import type { Photo } from '../../types/index.ts';
 
 interface UploaderDropzoneProps {
@@ -17,7 +18,10 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
   const [progressStage, setProgressStage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [recentUpload, setRecentUpload] = useState<UploadR2Result | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<CompressionProfile>('compact');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeCfg = COMPRESSION_PROFILES[selectedProfile];
 
   const processFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -26,16 +30,21 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
     }
 
     setIsProcessing(true);
-    setProgressStage('Initializing crisp compression...');
+    setProgressStage(`Initializing ${activeCfg.label}...`);
     setProgressPercent(10);
     setRecentUpload(null);
 
     try {
-      // Compresses strictly below 100 KB and uploads to Cloudflare R2
-      const result = await uploadCatalogImageToR2(file, categoryId, (stage, pct) => {
-        setProgressStage(stage);
-        setProgressPercent(pct);
-      });
+      // Compresses with selected profile and uploads to Cloudflare R2
+      const result = await uploadCatalogImageToR2(
+        file,
+        categoryId,
+        (stage, pct) => {
+          setProgressStage(stage);
+          setProgressPercent(pct);
+        },
+        selectedProfile
+      );
 
       setRecentUpload(result);
 
@@ -79,7 +88,7 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: '14px',
+          marginBottom: '12px',
           fontSize: '0.82rem',
           color: '#AAA',
         }}
@@ -90,7 +99,56 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-gold)' }}>
           <Globe size={14} />
-          <span>Target Size: <strong>&lt; 100 KB</strong> · Crisp Retina Precision</span>
+          <span>Active Profile: <strong>{activeCfg.badge}</strong></span>
+        </div>
+      </div>
+
+      {/* Quality Profile Selector */}
+      <div
+        style={{
+          backgroundColor: '#161616',
+          border: '1px solid #2a2a2a',
+          borderRadius: '6px',
+          padding: '12px 14px',
+          marginBottom: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#DDD', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={14} color="var(--color-gold)" />
+            Catalog Photo Compression Profile:
+          </span>
+          <span style={{ fontSize: '0.72rem', color: '#888' }}>
+            {activeCfg.description}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+          {(['compact', 'balanced', 'ultra'] as CompressionProfile[]).map((pKey) => {
+            const p = COMPRESSION_PROFILES[pKey];
+            const isSelected = selectedProfile === pKey;
+            return (
+              <button
+                key={pKey}
+                type="button"
+                onClick={() => setSelectedProfile(pKey)}
+                style={{
+                  padding: '8px 10px',
+                  borderRadius: '4px',
+                  border: isSelected ? '1px solid var(--color-gold)' : '1px solid #333',
+                  backgroundColor: isSelected ? 'rgba(200, 145, 74, 0.16)' : '#1a1a1a',
+                  color: isSelected ? '#FFF' : '#888',
+                  fontSize: '0.76rem',
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -117,13 +175,12 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
           multiple
           onChange={(e) => handleFiles(e.target.files)}
         />
-        <UploadCloud size={40} color="var(--color-gold)" style={{ margin: '0 auto 12px' }} />
+        <UploadCloud size={38} color="var(--color-gold)" style={{ margin: '0 auto 10px' }} />
         <p style={{ color: '#FFFFFF', fontWeight: 600, fontSize: '0.95rem' }}>
           Drag & drop photos here, or click to browse
         </p>
-        <p style={{ color: '#888888', fontSize: '0.82rem', marginTop: '6px' }}>
-          Photos are automatically optimized <strong>under 100 KB</strong> with native resolution preserved, EXIF stripped,
-          and uploaded directly to <strong>Cloudflare R2</strong>.
+        <p style={{ color: '#888888', fontSize: '0.8rem', marginTop: '6px' }}>
+          Mode: <strong style={{ color: 'var(--color-gold)' }}>{activeCfg.label}</strong> · {activeCfg.description}
         </p>
       </div>
 
@@ -162,6 +219,9 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '3px', backgroundColor: 'rgba(200, 145, 74, 0.2)', color: 'var(--color-gold)', fontWeight: 600 }}>
+              {COMPRESSION_PROFILES[recentUpload.profile || selectedProfile].badge}
+            </span>
             <span className="savings-tag">-{recentUpload.savingsPercent}% Saved</span>
             <span style={{ fontSize: '0.75rem', color: '#888' }}>
               ({recentUpload.width}x{recentUpload.height} {recentUpload.orientation}) ·{' '}

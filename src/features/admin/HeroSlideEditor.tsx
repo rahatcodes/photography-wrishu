@@ -13,9 +13,11 @@ import {
   Monitor,
   Smartphone,
   SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react';
 import type { HeroSlide, HeroSlideTarget } from '../../types/index.ts';
 import { uploadHeroImageToSupabase, UploadHeroResult } from '../../lib/storageService.ts';
+import { CompressionProfile, COMPRESSION_PROFILES } from '../../lib/imageCompression.ts';
 
 interface SingleImageUploaderProps {
   currentUrl: string;
@@ -33,9 +35,11 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
   const [progressStage, setProgressStage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
   const [lastResult, setLastResult] = useState<UploadHeroResult | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<CompressionProfile>('ultra');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isPortrait = target === 'portrait';
+  const activeCfg = COMPRESSION_PROFILES[selectedProfile];
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -44,15 +48,20 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
     }
 
     setIsUploading(true);
-    setProgressStage('Compressing image (< 100 KB)...');
+    setProgressStage(`Compressing with ${activeCfg.label}...`);
     setProgressPercent(15);
     setLastResult(null);
 
     try {
-      const result = await uploadHeroImageToSupabase(file, target, (stage, pct) => {
-        setProgressStage(stage);
-        setProgressPercent(pct);
-      });
+      const result = await uploadHeroImageToSupabase(
+        file,
+        target,
+        (stage, pct) => {
+          setProgressStage(stage);
+          setProgressPercent(pct);
+        },
+        selectedProfile
+      );
 
       setLastResult(result);
       onUrlChange(result.url);
@@ -73,7 +82,7 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
         padding: '16px',
         display: 'flex',
         flexDirection: 'column',
-        gap: '12px',
+        gap: '14px',
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -101,6 +110,51 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
           <Database size={11} />
           Supabase Bucket: hero
         </span>
+      </div>
+
+      {/* Quality Mode Selector */}
+      <div style={{ backgroundColor: '#111', padding: '10px 12px', borderRadius: '6px', border: '1px solid #282828' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+          <span style={{ fontSize: '0.73rem', fontWeight: 600, color: '#BBB', display: 'flex', alignItems: 'center', gap: '5px' }}>
+            <Sparkles size={12} color="var(--color-gold)" />
+            Compression Quality Mode:
+          </span>
+          <span style={{ fontSize: '0.68rem', color: 'var(--color-gold)', fontWeight: 600 }}>
+            {activeCfg.badge}
+          </span>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
+          {(['ultra', 'balanced', 'compact'] as CompressionProfile[]).map((pKey) => {
+            const p = COMPRESSION_PROFILES[pKey];
+            const isSelected = selectedProfile === pKey;
+            return (
+              <button
+                key={pKey}
+                type="button"
+                onClick={() => setSelectedProfile(pKey)}
+                style={{
+                  padding: '6px 8px',
+                  borderRadius: '4px',
+                  border: isSelected ? '1px solid var(--color-gold)' : '1px solid #333',
+                  backgroundColor: isSelected ? 'rgba(200, 145, 74, 0.15)' : '#181818',
+                  color: isSelected ? '#FFF' : '#888',
+                  fontSize: '0.72rem',
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  transition: 'all 120ms ease',
+                }}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <p style={{ margin: '6px 0 0 0', fontSize: '0.68rem', color: '#777' }}>
+          {activeCfg.description}
+        </p>
       </div>
 
       {/* Preview Box & Dropzone */}
@@ -174,10 +228,10 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
               <UploadCloud size={22} color="var(--color-gold)" />
               <span style={{ fontSize: '0.8rem', color: '#EEE', fontWeight: 600 }}>
-                Upload {isPortrait ? 'Mobile' : 'Desktop'} Image
+                Upload {isPortrait ? 'Mobile' : 'Desktop'} Image ({activeCfg.badge})
               </span>
               <span style={{ fontSize: '0.7rem', color: '#777' }}>
-                Auto-compressed strictly below 100 KB and uploaded to Supabase
+                {activeCfg.description}
               </span>
             </div>
           )}
@@ -221,7 +275,7 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
             </span>
           </div>
           <span style={{ color: '#4ade80', fontWeight: 600 }}>
-            -{lastResult.savingsPercent}% Saved · {lastResult.storage === 'supabase' ? 'Supabase CDN' : 'Local'}
+            {COMPRESSION_PROFILES[lastResult.profile || selectedProfile].badge} · -{lastResult.savingsPercent}% Saved
           </span>
         </div>
       )}

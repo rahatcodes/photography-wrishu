@@ -119,6 +119,9 @@ export const HeroSlider: React.FC = () => {
                   height: '100%',
                   objectFit: 'cover',
                   objectPosition: isMobile ? 'center 35%' : 'center 25%',
+                  imageRendering: 'auto',
+                  WebkitBackfaceVisibility: 'hidden',
+                  transform: 'translateZ(0)',
                 }}
               />
             </div>

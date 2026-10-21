@@ -10,8 +10,11 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient.ts';
 import {
   compressImageBelow100KB,
+  compressImageWithProfile,
   compressAndGenerateVariants,
   CompressionResult,
+  CompressionProfile,
+  COMPRESSION_PROFILES,
 } from './imageCompression.ts';
 
 export interface UploadHeroResult {
@@ -23,6 +26,7 @@ export interface UploadHeroResult {
   originalSize: number;
   savingsPercent: number;
   storage: 'supabase' | 'fallback';
+  profile: CompressionProfile;
   warning?: string;
 }
 
@@ -37,6 +41,7 @@ export interface UploadR2Result {
   originalSize: number;
   savingsPercent: number;
   storage: 'r2' | 'fallback';
+  profile: CompressionProfile;
   warning?: string;
 }
 
@@ -59,14 +64,16 @@ export function blobToDataUrl(blob: Blob): Promise<string> {
 export async function uploadHeroImageToSupabase(
   file: File,
   orientation: 'landscape' | 'portrait',
-  onProgress?: (stage: string, percent: number) => void
+  onProgress?: (stage: string, percent: number) => void,
+  profile: CompressionProfile = 'ultra'
 ): Promise<UploadHeroResult> {
-  onProgress?.('Compressing hero visual (< 100 KB)...', 25);
+  const profileCfg = COMPRESSION_PROFILES[profile];
+  onProgress?.(`Compressing hero visual (${profileCfg.label})...`, 25);
 
-  // 1. Compress below 100 KB while keeping dimensions and sharpness
-  const compressed = await compressImageBelow100KB(file, {
-    maxSizeBytes: 98 * 1024, // < 100 KB
-    preferredMaxDimension: 2560,
+  // 1. Compress with selected quality profile
+  const compressed = await compressImageWithProfile(file, {
+    profile,
+    preferredMaxDimension: orientation === 'portrait' ? profileCfg.maxDimPortrait : profileCfg.maxDimLandscape,
     onProgress: (p) => onProgress?.(p.stage, Math.round(p.percent * 0.5)),
   });
 
@@ -110,6 +117,7 @@ export async function uploadHeroImageToSupabase(
           originalSize: file.size,
           savingsPercent: savings,
           storage: 'supabase',
+          profile,
         };
       } else {
         console.warn('Supabase hero bucket upload notice:', error?.message);
@@ -125,6 +133,7 @@ export async function uploadHeroImageToSupabase(
           originalSize: file.size,
           savingsPercent: savings,
           storage: 'fallback',
+          profile,
           warning: error?.message || 'Supabase bucket not reachable, used instant local fallback',
         };
       }
@@ -140,6 +149,7 @@ export async function uploadHeroImageToSupabase(
         originalSize: file.size,
         savingsPercent: savings,
         storage: 'fallback',
+        profile,
         warning: err instanceof Error ? err.message : 'Upload failed, used local fallback',
       };
     }
@@ -157,6 +167,7 @@ export async function uploadHeroImageToSupabase(
     originalSize: file.size,
     savingsPercent: savings,
     storage: 'fallback',
+    profile,
   };
 }
 
@@ -166,12 +177,15 @@ export async function uploadHeroImageToSupabase(
 export async function uploadCatalogImageToR2(
   file: File,
   category: string,
-  onProgress?: (stage: string, percent: number) => void
+  onProgress?: (stage: string, percent: number) => void,
+  profile: CompressionProfile = 'compact'
 ): Promise<UploadR2Result> {
-  onProgress?.('Compressing photo below 100 KB...', 20);
+  const profileCfg = COMPRESSION_PROFILES[profile];
+  onProgress?.(`Compressing photo (${profileCfg.label})...`, 20);
 
-  // 1. Compress with responsive variants, all < 100 KB and tack-sharp
+  // 1. Compress with responsive variants
   const result: CompressionResult = await compressAndGenerateVariants(file, {
+    profile,
     onProgress: (p) => onProgress?.(p.stage, Math.round(p.percent * 0.5)),
   });
 
@@ -236,6 +250,7 @@ export async function uploadCatalogImageToR2(
             originalSize: result.originalSize,
             savingsPercent: result.savingsPercent,
             storage: 'r2',
+            profile,
           };
         }
       }
@@ -265,5 +280,6 @@ export async function uploadCatalogImageToR2(
     originalSize: result.originalSize,
     savingsPercent: result.savingsPercent,
     storage: 'fallback',
+    profile,
   };
 }
