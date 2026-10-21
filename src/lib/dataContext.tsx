@@ -167,7 +167,17 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
   const [adminUser, setAdminUser] = useState<AdminProfile | null>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.ADMIN);
-    return saved ? JSON.parse(saved) : null;
+    if (!saved) return null;
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed?.id === 'admin-local-1' || parsed?.id === 'demo-admin') {
+        localStorage.removeItem(STORAGE_KEYS.ADMIN);
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
@@ -753,7 +763,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  // If Supabase is configured, check Supabase Auth session
+  // Check Supabase Auth session on startup and listen for auth state changes
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return;
 
@@ -761,9 +771,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (!error && session?.user) {
         setAdminUser({
           id: session.user.id,
-          email: session.user.email || 'admin@wrishu.com',
+          email: session.user.email || '',
           role: 'admin',
         });
+      } else {
+        setAdminUser(null);
       }
     });
 
@@ -771,12 +783,12 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (session?.user) {
         setAdminUser({
           id: session.user.id,
-          email: session.user.email || 'admin@wrishu.com',
+          email: session.user.email || '',
           role: 'admin',
         });
       } else if (event === 'SIGNED_OUT') {
-        // Never log out a local fallback admin unless explicitly signing out
-        setAdminUser((current) => (current?.id === 'admin-local-1' ? current : null));
+        setAdminUser(null);
+        localStorage.removeItem(STORAGE_KEYS.ADMIN);
       }
     });
 
@@ -788,43 +800,39 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const loginAdmin = async (email: string, pass: string): Promise<{ success: boolean; error?: string }> => {
     setIsLoading(true);
     try {
-      if (supabase && isSupabaseConfigured) {
-        try {
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
-          if (!error && data?.user) {
-            setAdminUser({
-              id: data.user.id,
-              email: data.user.email || email,
-              role: 'admin',
-            });
-            setIsLoading(false);
-            return { success: true };
-          }
-          if (error) {
-            console.warn('Supabase auth response notice:', error.message);
-          }
-        } catch (supabaseErr) {
-          console.warn('Supabase auth network exception:', supabaseErr);
-        }
+      if (!supabase || !isSupabaseConfigured) {
+        setIsLoading(false);
+        return { success: false, error: 'Authentication service is not configured.' };
       }
 
-      // Resilient Admin Access: Pre-configured admin credentials always grant Portfolio Control Center access
-      if ((email === 'admin@wrishu.com' && pass === 'wrishu2026') || (email && pass.length >= 6)) {
-        const user: AdminProfile = {
-          id: 'admin-local-1',
-          email: email || 'admin@wrishu.com',
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: pass,
+      });
+
+      if (error) {
+        setIsLoading(false);
+        return { success: false, error: error.message };
+      }
+
+      if (data?.user) {
+        setAdminUser({
+          id: data.user.id,
+          email: data.user.email || email.trim(),
           role: 'admin',
-        };
-        setAdminUser(user);
+        });
         setIsLoading(false);
         return { success: true };
       }
 
       setIsLoading(false);
-      return { success: false, error: 'Invalid email or password (min 6 characters required)' };
+      return { success: false, error: 'Invalid administrator email or password.' };
     } catch (err: unknown) {
       setIsLoading(false);
-      return { success: false, error: err instanceof Error ? err.message : 'Login failed' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Authentication failed.',
+      };
     }
   };
 
@@ -833,6 +841,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await supabase.auth.signOut();
     }
     setAdminUser(null);
+    localStorage.removeItem(STORAGE_KEYS.ADMIN);
   };
 
   const updateSettings = (newSettings: Partial<SiteSettings>) => {

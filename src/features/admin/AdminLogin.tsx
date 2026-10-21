@@ -5,8 +5,8 @@ import { SeoHead } from '../../components/SeoHead.tsx';
 
 export const AdminLogin: React.FC = () => {
   const { loginAdmin, isLoading } = useData();
-  const [email, setEmail] = useState('admin@wrishu.com');
-  const [password, setPassword] = useState('wrishu2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,6 +91,7 @@ export const AdminLogin: React.FC = () => {
               style={{ textAlign: 'left' }}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@wrishu.com"
               required
             />
           </div>
@@ -105,6 +106,7 @@ export const AdminLogin: React.FC = () => {
               style={{ textAlign: 'left' }}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••••••"
               required
             />
           </div>
@@ -129,7 +131,7 @@ export const AdminLogin: React.FC = () => {
 
         <div style={{ marginTop: '24px', borderTop: '1px solid #222', paddingTop: '16px', textAlign: 'center' }}>
           <p style={{ fontSize: '0.75rem', color: '#666' }}>
-            Pre-loaded demo credentials for preview: <code>admin@wrishu.com</code>
+            Sign in with your registered Supabase administrator credentials.
           </p>
         </div>
       </div>
