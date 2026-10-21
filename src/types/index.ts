@@ -58,6 +58,7 @@ export interface Project {
   description: string;
   order: number;
   photos_count?: number;
+  gallery_images?: string[];
 }
 
 export interface StatItem {

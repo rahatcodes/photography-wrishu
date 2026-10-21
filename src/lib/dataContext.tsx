@@ -49,6 +49,10 @@ interface DataContextType {
   deleteHeroSlide: (id: string) => void;
   reorderHeroSlides: (newSlides: HeroSlide[]) => void;
   updateStats: (newStats: StatItem[]) => void;
+  projectSyncStatus: 'synced' | 'syncing' | 'error' | 'local_only' | 'idle';
+  projectSyncError?: string;
+  syncProjectsToCloud: (projects?: Project[]) => Promise<{ success: boolean; error?: string }>;
+  checkSlugAvailability: (slug: string, currentProjectId?: string) => Promise<{ available: boolean; suggestedSlug: string }>;
   addProject: (project: Project) => void;
   updateProject: (id: string, updates: Partial<Project>) => void;
   deleteProject: (id: string) => void;
@@ -170,6 +174,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [cloudSyncError, setCloudSyncError] = useState<string | undefined>(undefined);
   const [photoSyncStatus, setPhotoSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
   const [photoSyncError, setPhotoSyncError] = useState<string | undefined>(undefined);
+  const [projectSyncStatus, setProjectSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
+  const [projectSyncError, setProjectSyncError] = useState<string | undefined>(undefined);
 
   // Sync to local storage for persistence across reloads using safeSetLocalStorage
   useEffect(() => {
@@ -483,6 +489,161 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  // Load projects from Supabase on startup so ALL devices & visitors see updated projects
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return;
+    let isMounted = true;
+
+    const fetchCloudProjects = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('*')
+          .order('order_index', { ascending: true });
+
+        if (!error && Array.isArray(data)) {
+          if (data.length > 0) {
+            const mapped: Project[] = data.map((row: any) => ({
+              id: row.id,
+              title: row.title || 'Untitled Project',
+              slug: row.slug,
+              featured_image_url: row.featured_image_url || '',
+              description: row.description || '',
+              order: Number(row.order_index) || 1,
+              photos_count: Number(row.photos_count) || 0,
+              gallery_images: Array.isArray(row.gallery_images) ? row.gallery_images : [],
+            }));
+
+            if (isMounted) {
+              setProjects(mapped);
+              safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(mapped));
+              setProjectSyncStatus('synced');
+            }
+          } else {
+            // Cloud has 0 projects, check local storage
+            const localSaved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+            if (localSaved && isMounted) {
+              setProjectSyncStatus('local_only');
+            }
+          }
+        } else if (error) {
+          console.warn('[DataContext] Supabase projects query notice:', error.message);
+        }
+      } catch (err) {
+        console.warn('[DataContext] Failed to fetch cloud projects:', err);
+      }
+    };
+
+    fetchCloudProjects();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Save/Publish projects to Supabase cloud database
+  const syncProjectsToCloud = async (projectsToSync?: Project[]): Promise<{ success: boolean; error?: string }> => {
+    const targetProjects = projectsToSync || projects;
+    if (!supabase || !isSupabaseConfigured) {
+      setProjectSyncStatus('local_only');
+      return { success: false, error: 'Supabase client is not configured' };
+    }
+
+    setProjectSyncStatus('syncing');
+    try {
+      if (targetProjects.length > 0) {
+        const rows = targetProjects.map((p, idx) => ({
+          id: p.id,
+          title: p.title || 'Untitled Project',
+          slug: p.slug,
+          featured_image_url: p.featured_image_url || '',
+          description: p.description || '',
+          order_index: Number(p.order) || (idx + 1),
+          photos_count: Number(p.photos_count) || 0,
+        }));
+
+        const { error: upsertErr } = await supabase.from('projects').upsert(rows);
+        if (upsertErr) {
+          console.error('[DataContext] Failed to sync projects to Supabase:', upsertErr);
+          setProjectSyncStatus('error');
+          setProjectSyncError(upsertErr.message);
+          return { success: false, error: upsertErr.message };
+        }
+
+        // Delete projects from Supabase that were deleted locally
+        const currentIds = targetProjects.map((p) => p.id);
+        const { data: cloudRows } = await supabase.from('projects').select('id');
+        if (Array.isArray(cloudRows)) {
+          const idsToDelete = cloudRows.map((r: any) => r.id).filter((id: string) => !currentIds.includes(id));
+          if (idsToDelete.length > 0) {
+            await supabase.from('projects').delete().in('id', idsToDelete);
+          }
+        }
+      } else {
+        await supabase.from('projects').delete().neq('id', '__keep_none__');
+      }
+
+      setProjectSyncStatus('synced');
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Project sync failed';
+      console.error('[DataContext] Project sync exception:', err);
+      setProjectSyncStatus('error');
+      setProjectSyncError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  // Check database and local state for duplicate slugs, returning unique candidate
+  const checkSlugAvailability = async (
+    candidateSlug: string,
+    currentProjectId?: string
+  ): Promise<{ available: boolean; suggestedSlug: string }> => {
+    const cleanSlug = candidateSlug
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'project';
+
+    // 1. Check local projects first
+    const localConflict = projects.some(
+      (p) => p.slug === cleanSlug && p.id !== currentProjectId
+    );
+
+    let isTaken = localConflict;
+
+    // 2. Query Supabase directly
+    if (!isTaken && supabase && isSupabaseConfigured) {
+      try {
+        const { data, error } = await supabase
+          .from('projects')
+          .select('id, slug')
+          .eq('slug', cleanSlug);
+
+        if (!error && Array.isArray(data)) {
+          isTaken = data.some((row: any) => row.id !== currentProjectId);
+        }
+      } catch {
+        // Fall back to local check
+      }
+    }
+
+    if (!isTaken) {
+      return { available: true, suggestedSlug: cleanSlug };
+    }
+
+    // Generate unique suggestion by incrementing suffix
+    let counter = 1;
+    let suggested = `${cleanSlug}-${counter}`;
+    while (projects.some((p) => p.slug === suggested && p.id !== currentProjectId)) {
+      counter += 1;
+      suggested = `${cleanSlug}-${counter}`;
+    }
+
+    return { available: false, suggestedSlug: suggested };
+  };
+
   // Load site_settings from Supabase on startup so ALL devices & visitors see updated profile image and settings
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return;
@@ -747,15 +908,30 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const addProject = (project: Project) => {
-    setProjects(prev => [...prev, project]);
+    setProjects((prev) => {
+      const next = [...prev, project];
+      safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(next));
+      syncProjectsToCloud(next);
+      return next;
+    });
   };
 
   const updateProject = (id: string, updates: Partial<Project>) => {
-    setProjects(prev => prev.map(proj => (proj.id === id ? { ...proj, ...updates } : proj)));
+    setProjects((prev) => {
+      const next = prev.map((proj) => (proj.id === id ? { ...proj, ...updates } : proj));
+      safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(next));
+      syncProjectsToCloud(next);
+      return next;
+    });
   };
 
   const deleteProject = (id: string) => {
-    setProjects(prev => prev.filter(proj => proj.id !== id));
+    setProjects((prev) => {
+      const next = prev.filter((proj) => proj.id !== id);
+      safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(next));
+      syncProjectsToCloud(next);
+      return next;
+    });
   };
 
   const submitMessage = async (name: string, email: string, message: string): Promise<boolean> => {
@@ -811,6 +987,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         deleteHeroSlide,
         reorderHeroSlides,
         updateStats,
+        projectSyncStatus,
+        projectSyncError,
+        syncProjectsToCloud,
+        checkSlugAvailability,
         addProject,
         updateProject,
         deleteProject,
