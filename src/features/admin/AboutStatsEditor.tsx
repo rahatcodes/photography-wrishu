@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useData } from '../../lib/dataContext.tsx';
-import { Save, Plus, Trash2 } from 'lucide-react';
+import { Save, Plus, Trash2, Camera, UploadCloud, CheckCircle2 } from 'lucide-react';
 import type { StatItem } from '../../types/index.ts';
+import { CircularImageCropperModal } from '../../components/CircularImageCropperModal.tsx';
 
 interface AboutStatsEditorProps {
   onNotify: (msg: string) => void;
@@ -18,6 +19,30 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
   const [portraitUrl, setPortraitUrl] = useState(settings.about_portrait_url);
 
   const [statsList, setStatsList] = useState<StatItem[]>([...stats]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropperModalOpen, setCropperModalOpen] = useState(false);
+  const [selectedCropFile, setSelectedCropFile] = useState<File | null>(null);
+
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file (PNG, JPG, WebP).');
+        return;
+      }
+      setSelectedCropFile(file);
+      setCropperModalOpen(true);
+      e.target.value = '';
+    }
+  };
+
+  const handleCropComplete = (newUrl: string) => {
+    setPortraitUrl(newUrl);
+    updateSettings({
+      about_portrait_url: newUrl,
+    });
+    onNotify('Profile portrait cropped, uploaded, and saved successfully!');
+  };
 
   const handleParagraphChange = (index: number, val: string) => {
     const updated = [...paragraphs];
@@ -121,17 +146,142 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
           />
         </div>
 
-        <div className="form-group">
-          <label style={{ fontSize: '0.78rem', color: '#AAA', display: 'block', marginBottom: '6px' }}>
-            Circular Monochrome Portrait URL
-          </label>
-          <input
-            type="text"
-            className="form-input"
-            style={{ textAlign: 'left', fontSize: '0.82rem' }}
-            value={portraitUrl}
-            onChange={(e) => setPortraitUrl(e.target.value)}
-          />
+        {/* Circular Profile Portrait Section */}
+        <div
+          style={{
+            marginTop: '20px',
+            paddingTop: '20px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#FFF', margin: 0 }}>
+              Circular Monochrome Portrait (About Section)
+            </label>
+            <span
+              style={{
+                fontSize: '0.68rem',
+                padding: '2px 8px',
+                borderRadius: '4px',
+                backgroundColor: 'rgba(200, 145, 74, 0.15)',
+                color: 'var(--color-gold)',
+                fontWeight: 600,
+              }}
+            >
+              Homepage Round Avatar
+            </span>
+          </div>
+
+          <p style={{ fontSize: '0.78rem', color: '#888', margin: '0 0 16px 0' }}>
+            Upload a profile photo and use the <strong>LinkedIn-style circular cropper</strong> to pan, reposition, and zoom in/out for the perfect framing.
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '24px',
+              flexWrap: 'wrap',
+              backgroundColor: '#141414',
+              padding: '18px',
+              borderRadius: '8px',
+              border: '1px solid rgba(255, 255, 255, 0.06)',
+            }}
+          >
+            {/* Circular Avatar Preview with interactive hover overlay */}
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                position: 'relative',
+                width: '120px',
+                height: '120px',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                border: '3px solid var(--color-gold)',
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.6)',
+                backgroundColor: '#1c1c1c',
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+              title="Click to upload & reposition photo"
+            >
+              {portraitUrl ? (
+                <img
+                  src={portraitUrl}
+                  alt="Profile Portrait"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    filter: 'grayscale(100%) contrast(1.1)',
+                  }}
+                />
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: '0.75rem' }}>
+                  No Photo
+                </div>
+              )}
+
+              {/* Hover Camera Overlay */}
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  backgroundColor: 'rgba(0, 0, 0, 0.55)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '4px',
+                  opacity: 0,
+                  transition: 'opacity 150ms ease',
+                  color: '#FFF',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = '1')}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = '0')}
+              >
+                <Camera size={22} color="var(--color-gold)" />
+                <span style={{ fontSize: '0.68rem', fontWeight: 600 }}>Change</span>
+              </div>
+            </div>
+
+            {/* Actions & URL Input */}
+            <div style={{ flex: 1, minWidth: '240px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelected}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="btn btn-gold btn-sm"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '8px 16px', fontWeight: 700 }}
+                >
+                  <Camera size={15} />
+                  <span>Upload & Reposition Photo</span>
+                </button>
+              </div>
+
+              {/* Direct URL input */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '0.7rem', color: '#777', margin: 0 }}>
+                  Image CDN URL (Cloudflare / Storage):
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ textAlign: 'left', fontSize: '0.78rem', height: '32px' }}
+                  value={portraitUrl}
+                  onChange={(e) => setPortraitUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -208,6 +358,17 @@ export const AboutStatsEditor: React.FC<AboutStatsEditorProps> = ({ onNotify }) 
           ))}
         </div>
       </div>
+
+      {/* LinkedIn-Style Circular Crop & Reposition Modal */}
+      <CircularImageCropperModal
+        isOpen={cropperModalOpen}
+        imageFile={selectedCropFile}
+        onClose={() => {
+          setCropperModalOpen(false);
+          setSelectedCropFile(null);
+        }}
+        onCropComplete={handleCropComplete}
+      />
     </div>
   );
 };

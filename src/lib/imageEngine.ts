@@ -317,3 +317,67 @@ export async function uploadImageToCloudflareR2(
     storage: 'cloudflare',
   };
 }
+
+/**
+ * Uploads cropped circular profile photo to Cloudflare R2 (with Supabase fallback).
+ * Output is high quality WebP. Returns CDN URL with zero local memory storage.
+ */
+export async function uploadProfilePortraitImage(
+  imageBlob: Blob,
+  fileName: string = 'profile-portrait.webp',
+  onProgress?: (percent: number, message: string) => void
+): Promise<UploadResult> {
+  const workerUrl = import.meta.env.VITE_WORKER_UPLOAD_URL;
+  const isCloudflareReady = Boolean(
+    workerUrl &&
+    !workerUrl.includes('your-worker') &&
+    workerUrl.startsWith('http')
+  );
+
+  const file = new File([imageBlob], fileName, { type: 'image/webp' });
+
+  // 1. Try Cloudflare R2 if worker URL is provided
+  if (isCloudflareReady) {
+    try {
+      return await uploadImageToCloudflareR2(file, 'profile', onProgress);
+    } catch (cfErr) {
+      console.warn('[ImageEngine] Cloudflare upload failed, attempting Supabase bucket fallback:', cfErr);
+    }
+  }
+
+  // 2. Upload to Supabase bucket
+  onProgress?.(40, 'Uploading profile photo to storage...');
+  const client = supabaseStorage || supabase;
+  if (!client || !isSupabaseConfigured) {
+    throw new Error('Storage client is not configured.');
+  }
+
+  const cleanName = fileName.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filePath = `profile-photos/portrait-${Date.now()}-${cleanName}.webp`;
+
+  const { data, error } = await client.storage
+    .from('hero')
+    .upload(filePath, imageBlob, {
+      contentType: 'image/webp',
+      upsert: true,
+      cacheControl: '31536000',
+    });
+
+  if (error || !data?.path) {
+    throw new Error(`Profile upload rejected: ${error?.message || 'Upload failed'}`);
+  }
+
+  const { data: urlData } = client.storage.from('hero').getPublicUrl(data.path);
+
+  onProgress?.(100, 'Profile image uploaded successfully!');
+
+  return {
+    url: urlData.publicUrl,
+    width: 800,
+    height: 800,
+    sizeBytes: imageBlob.size,
+    savingsPercent: 0,
+    storage: 'supabase',
+  };
+}
+
