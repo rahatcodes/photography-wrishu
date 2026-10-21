@@ -76,7 +76,7 @@ function safeSetLocalStorage(key: string, value: string): boolean {
 
 // Strip oversized base64 data URLs to protect browser storage quota (< 5MB limit)
 function sanitizeSlideForStorage(slide: HeroSlide): HeroSlide {
-  const isBase64 = (url?: string) => Boolean(url && url.startsWith('data:image/') && url.length > 2000);
+  const isBase64 = (url?: string) => Boolean(url && url.startsWith('data:image/') && url.length > 500);
   return {
     ...slide,
     image_url: isBase64(slide.image_url) ? '' : slide.image_url,
@@ -93,15 +93,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         const parsed: HeroSlide[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Sanitize any existing bloated base64 data from previous failed uploads
-          return parsed.map((s) => {
-            const sanitized = sanitizeSlideForStorage(s);
-            return {
-              ...sanitized,
-              target: sanitized.target || 'landscape',
-              image_url: sanitized.image_url || sanitized.landscape_url || sanitized.portrait_url || '',
-            };
-          });
+          const hasValidUrls = parsed.some(
+            (s) => Boolean(s.image_url && s.image_url.startsWith('http')) ||
+                   Boolean(s.landscape_url && s.landscape_url.startsWith('http')) ||
+                   Boolean(s.portrait_url && s.portrait_url.startsWith('http'))
+          );
+
+          if (hasValidUrls) {
+            return parsed.map((s) => {
+              const sanitized = sanitizeSlideForStorage(s);
+              return {
+                ...sanitized,
+                target: sanitized.target || 'landscape',
+                image_url: sanitized.image_url || sanitized.landscape_url || sanitized.portrait_url || '',
+              };
+            });
+          }
         }
       } catch {
         return INITIAL_HERO_SLIDES;
@@ -202,8 +209,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           .order('order_index', { ascending: true });
 
         if (!error && Array.isArray(data)) {
-          if (data.length > 0) {
-            const mapped: HeroSlide[] = data.map((row: any) => {
+          const validRows = data.filter((row: any) =>
+            Boolean(
+              (row.image_url && String(row.image_url).startsWith('http')) ||
+              (row.landscape_url && String(row.landscape_url).startsWith('http')) ||
+              (row.portrait_url && String(row.portrait_url).startsWith('http'))
+            )
+          );
+
+          if (validRows.length > 0) {
+            const mapped: HeroSlide[] = validRows.map((row: any) => {
               const target = (row.target as HeroSlide['target']) ||
                 (row.portrait_url && !row.landscape_url ? 'portrait' : 'landscape');
               const image_url = row.image_url ||

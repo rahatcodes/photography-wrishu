@@ -21,8 +21,12 @@ import {
   Check,
 } from 'lucide-react';
 import type { HeroSlide, HeroSlideTarget } from '../../types/index.ts';
-import { uploadHeroImageToSupabase, UploadHeroResult } from '../../lib/storageService.ts';
-import { CompressionProfile, COMPRESSION_PROFILES } from '../../lib/imageCompression.ts';
+import {
+  uploadHeroImageToSupabase,
+  listHeroBucketImages,
+  BucketImageItem,
+  UploadResult,
+} from '../../lib/imageEngine.ts';
 
 interface SingleImageUploaderProps {
   currentUrl: string;
@@ -39,12 +43,21 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
   const [isUploading, setIsUploading] = useState(false);
   const [progressStage, setProgressStage] = useState('');
   const [progressPercent, setProgressPercent] = useState(0);
-  const [lastResult, setLastResult] = useState<UploadHeroResult | null>(null);
-  const [selectedProfile, setSelectedProfile] = useState<CompressionProfile>('ultra');
+  const [lastResult, setLastResult] = useState<UploadResult | null>(null);
+  const [showBucketBrowser, setShowBucketBrowser] = useState(false);
+  const [bucketImages, setBucketImages] = useState<BucketImageItem[]>([]);
+  const [isLoadingBucket, setIsLoadingBucket] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isPortrait = target === 'portrait';
-  const activeCfg = COMPRESSION_PROFILES[selectedProfile];
+
+  const handleOpenBucketBrowser = async () => {
+    setShowBucketBrowser(true);
+    setIsLoadingBucket(true);
+    const items = await listHeroBucketImages();
+    setBucketImages(items);
+    setIsLoadingBucket(false);
+  };
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -53,19 +66,18 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
     }
 
     setIsUploading(true);
-    setProgressStage(`Compressing with ${activeCfg.label}...`);
-    setProgressPercent(15);
+    setProgressStage('Compressing image to WebP...');
+    setProgressPercent(25);
     setLastResult(null);
 
     try {
       const result = await uploadHeroImageToSupabase(
         file,
         target,
-        (stage, pct) => {
+        (pct, stage) => {
           setProgressStage(stage);
           setProgressPercent(pct);
-        },
-        selectedProfile
+        }
       );
 
       setLastResult(result);
@@ -116,51 +128,6 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
           <Database size={11} />
           Supabase Bucket: hero
         </span>
-      </div>
-
-      {/* Quality Mode Selector */}
-      <div style={{ backgroundColor: '#111', padding: '10px 12px', borderRadius: '6px', border: '1px solid #282828' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-          <span style={{ fontSize: '0.73rem', fontWeight: 600, color: '#BBB', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Sparkles size={12} color="var(--color-gold)" />
-            Compression Quality Mode:
-          </span>
-          <span style={{ fontSize: '0.68rem', color: 'var(--color-gold)', fontWeight: 600 }}>
-            {activeCfg.badge}
-          </span>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
-          {(['ultra', 'balanced', 'compact'] as CompressionProfile[]).map((pKey) => {
-            const p = COMPRESSION_PROFILES[pKey];
-            const isSelected = selectedProfile === pKey;
-            return (
-              <button
-                key={pKey}
-                type="button"
-                onClick={() => setSelectedProfile(pKey)}
-                style={{
-                  padding: '6px 8px',
-                  borderRadius: '4px',
-                  border: isSelected ? '1px solid var(--color-gold)' : '1px solid #333',
-                  backgroundColor: isSelected ? 'rgba(200, 145, 74, 0.15)' : '#181818',
-                  color: isSelected ? '#FFF' : '#888',
-                  fontSize: '0.72rem',
-                  fontWeight: isSelected ? 700 : 500,
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  transition: 'all 120ms ease',
-                }}
-              >
-                {p.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <p style={{ margin: '6px 0 0 0', fontSize: '0.68rem', color: '#777' }}>
-          {activeCfg.description}
-        </p>
       </div>
 
       {/* Preview Box & Dropzone */}
@@ -234,10 +201,10 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
               <UploadCloud size={22} color="var(--color-gold)" />
               <span style={{ fontSize: '0.8rem', color: '#EEE', fontWeight: 600 }}>
-                Upload {isPortrait ? 'Mobile' : 'Desktop'} Image ({activeCfg.badge})
+                Upload {isPortrait ? 'Mobile' : 'Desktop'} Image to Supabase
               </span>
               <span style={{ fontSize: '0.7rem', color: '#777' }}>
-                {activeCfg.description}
+                Auto-compressed to clean WebP · Rendered from Supabase bucket
               </span>
             </div>
           )}
@@ -276,29 +243,97 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <CheckCircle2 size={14} color="#4ade80" />
             <span>
-              {(lastResult.originalSize / 1024).toFixed(0)} KB →{' '}
-              <strong>{(lastResult.compressedSize / 1024).toFixed(1)} KB</strong> ({lastResult.width}x{lastResult.height})
+              {(lastResult.sizeBytes / 1024).toFixed(1)} KB ({lastResult.width}x{lastResult.height}) · -{lastResult.savingsPercent}% Saved
             </span>
           </div>
           <span style={{ color: '#4ade80', fontWeight: 600 }}>
-            {COMPRESSION_PROFILES[lastResult.profile || selectedProfile].badge} · -{lastResult.savingsPercent}% Saved
+            Uploaded to Supabase Bucket
           </span>
         </div>
       )}
 
-      {/* Direct Image URL input */}
-      <div>
-        <label style={{ fontSize: '0.7rem', color: '#777', display: 'block', marginBottom: '4px' }}>
-          Direct Image URL:
-        </label>
+      {/* Direct Image URL input & Bucket Browser Button */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <label style={{ fontSize: '0.7rem', color: '#777', margin: 0 }}>
+            Image URL (Supabase Public CDN):
+          </label>
+          <button
+            type="button"
+            onClick={handleOpenBucketBrowser}
+            className="btn btn-sm"
+            style={{ fontSize: '0.72rem', padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+          >
+            <Database size={11} color="var(--color-gold)" />
+            <span>Browse Bucket Images</span>
+          </button>
+        </div>
+
         <input
           type="text"
           className="form-input"
           style={{ textAlign: 'left', fontSize: '0.75rem', padding: '6px 10px', height: '32px' }}
           value={currentUrl || ''}
           onChange={(e) => onUrlChange(e.target.value)}
-          placeholder="https://..."
+          placeholder="https://hkkyewcysomxwwsjfjwb.supabase.co/storage/v1/object/public/hero/..."
         />
+
+        {showBucketBrowser && (
+          <div
+            style={{
+              backgroundColor: '#111',
+              border: '1px solid #333',
+              borderRadius: '6px',
+              padding: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <span style={{ fontSize: '0.76rem', fontWeight: 600, color: '#EEE' }}>
+                Pick an existing image from Supabase Bucket (`hero/hero-slides/`):
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowBucketBrowser(false)}
+                style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '0.75rem' }}
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {isLoadingBucket ? (
+              <div style={{ padding: '12px', textAlign: 'center', color: '#888', fontSize: '0.75rem' }}>
+                <Loader2 size={16} className="animate-spin" /> Loading bucket images...
+              </div>
+            ) : bucketImages.length === 0 ? (
+              <p style={{ color: '#777', fontSize: '0.75rem', margin: 0 }}>No images found in bucket yet.</p>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
+                {bucketImages.map((bImg) => (
+                  <div
+                    key={bImg.name}
+                    onClick={() => {
+                      onUrlChange(bImg.url);
+                      setShowBucketBrowser(false);
+                    }}
+                    style={{
+                      border: currentUrl === bImg.url ? '2px solid var(--color-gold)' : '1px solid #333',
+                      borderRadius: '4px',
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      backgroundColor: '#0a0a0a',
+                    }}
+                    title={bImg.name}
+                  >
+                    <img src={bImg.url} alt={bImg.name} style={{ width: '100%', height: '55px', objectFit: 'cover' }} />
+                    <div style={{ padding: '3px 4px', fontSize: '0.62rem', color: '#AAA', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {(bImg.sizeBytes / 1024).toFixed(0)} KB
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
