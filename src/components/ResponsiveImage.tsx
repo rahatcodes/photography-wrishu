@@ -43,13 +43,16 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
       .join(', ');
   }
 
+  const hasAspect = Boolean(width && height && width > 0 && height > 0);
+
   return (
     <div
       className={`responsive-image-container ${className}`}
       style={{
         position: 'relative',
         overflow: 'hidden',
-        aspectRatio: width && height ? `${width} / ${height}` : undefined,
+        width: '100%',
+        aspectRatio: hasAspect ? `${width} / ${height}` : undefined,
       }}
       onClick={onClick}
     >
@@ -74,7 +77,7 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
         />
       )}
 
-      <picture>
+      <picture style={{ display: 'block', width: '100%', height: '100%' }}>
         {srcSetWebP && (
           <source
             type="image/webp"
@@ -99,9 +102,11 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
             objectFit: 'cover',
             opacity: loaded || priority || !lqip ? 1 : 0,
             transition: 'opacity 300ms ease-in-out',
+            display: 'block',
           }}
         />
       </picture>
     </div>
   );
 };
+
