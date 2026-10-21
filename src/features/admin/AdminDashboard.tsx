@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import '../../styles/admin.css';
 import { useData } from '../../lib/dataContext.tsx';
 import { AdminLogin } from './AdminLogin.tsx';
 import { HeroSlideEditor } from './HeroSlideEditor.tsx';

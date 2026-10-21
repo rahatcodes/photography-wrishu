@@ -45,7 +45,7 @@ export const PortfolioPattern: React.FC<PortfolioPatternProps> = ({ onPhotoClick
                       width={photo.width}
                       height={photo.height}
                       lqip={photo.lqip}
-                      sizes="(max-width: 768px) 100vw, 1380px"
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 90vw, 1080px"
                     />
                   </div>
                 </div>
@@ -68,7 +68,7 @@ export const PortfolioPattern: React.FC<PortfolioPatternProps> = ({ onPhotoClick
                       width={photo.width}
                       height={photo.height}
                       lqip={photo.lqip}
-                      sizes="(max-width: 600px) 100vw, (max-width: 1024px) 50vw, 440px"
+                      sizes="(max-width: 600px) 100vw, (max-width: 1024px) 50vw, 360px"
                     />
                   </div>
                 ))}

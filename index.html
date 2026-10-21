@@ -9,9 +9,32 @@
     <meta property="og:description" content="Official photography portfolio of Navid Mustasim Wrishu — Sports, Street, Nature & Wildlife Photographer, Educator, and Entrepreneur." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- Image CDNs preconnect & DNS prefetch for rapid LCP image loading -->
+    <link rel="preconnect" href="https://hkkyewcysomxwwsjfjwb.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://hkkyewcysomxwwsjfjwb.supabase.co" />
+    <link rel="preconnect" href="https://cdn.wrishu.com" crossorigin />
+    <link rel="dns-prefetch" href="https://cdn.wrishu.com" />
+
+    <!-- Google Fonts with preconnect and non-render-blocking stylesheet loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,300;1,400&family=Roboto:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400&display=swap" rel="stylesheet" />
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Roboto:wght@300;400;500&display=swap"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Roboto:wght@300;400;500&display=swap"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&family=Roboto:wght@300;400;500&display=swap"
+      />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>

@@ -104,6 +104,12 @@ export const HeroSlider: React.FC = () => {
           slide.portrait_url ||
           '';
 
+        // Optimize LCP: Load active slide first, pre-buffer only immediate next slide, defer others
+        const shouldLoadImage =
+          isCurrent ||
+          idx === (currentIdx + 1) % total ||
+          (total > 2 && idx === (currentIdx - 1 + total) % total);
+
         return (
           <div
             key={slide.id}
@@ -111,22 +117,26 @@ export const HeroSlider: React.FC = () => {
             aria-hidden={!isCurrent}
           >
             <div className="hero-image-wrap">
-              <img
-                src={imageUrl}
-                alt={slide.title}
-                loading={isFirst ? 'eager' : 'lazy'}
-                fetchPriority={isFirst ? 'high' : 'auto'}
-                decoding="async"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  objectPosition: isMobile ? 'center 35%' : 'center 25%',
-                  imageRendering: 'auto',
-                  WebkitBackfaceVisibility: 'hidden',
-                  transform: 'translateZ(0)',
-                }}
-              />
+              {shouldLoadImage ? (
+                <img
+                  src={imageUrl}
+                  alt={slide.title}
+                  loading={isCurrent && isFirst ? 'eager' : 'lazy'}
+                  fetchPriority={isCurrent && isFirst ? 'high' : 'auto'}
+                  decoding="async"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: isMobile ? 'center 35%' : 'center 25%',
+                    imageRendering: 'auto',
+                    WebkitBackfaceVisibility: 'hidden',
+                    transform: 'translateZ(0)',
+                  }}
+                />
+              ) : (
+                <div style={{ width: '100%', height: '100%', backgroundColor: '#0d0d0d' }} />
+              )}
             </div>
 
             <div className="hero-overlay">
