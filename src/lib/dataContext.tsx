@@ -33,6 +33,11 @@ interface DataContextType {
   cloudSyncStatus: 'synced' | 'syncing' | 'error' | 'local_only' | 'idle';
   cloudSyncError?: string;
   syncHeroSlidesToCloud: (slides?: HeroSlide[]) => Promise<{ success: boolean; error?: string }>;
+  photoSyncStatus: 'synced' | 'syncing' | 'error' | 'local_only' | 'idle';
+  photoSyncError?: string;
+  syncPhotosToCloud: (photos?: Photo[]) => Promise<{ success: boolean; error?: string }>;
+  reorderPhotos: (newPhotos: Photo[]) => void;
+  syncSettingsToCloud: (newSettings?: Partial<SiteSettings>) => Promise<{ success: boolean; error?: string }>;
   loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   logoutAdmin: () => Promise<void>;
   updateSettings: (newSettings: Partial<SiteSettings>) => void;
@@ -163,6 +168,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
   const [cloudSyncError, setCloudSyncError] = useState<string | undefined>(undefined);
+  const [photoSyncStatus, setPhotoSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
+  const [photoSyncError, setPhotoSyncError] = useState<string | undefined>(undefined);
 
   // Sync to local storage for persistence across reloads using safeSetLocalStorage
   useEffect(() => {
@@ -342,6 +349,181 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  // Load photos from Supabase cloud database on startup so ALL devices & visitors see updated photos
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return;
+
+    let isMounted = true;
+    const fetchCloudPhotos = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('photos')
+          .select('*')
+          .order('order_index', { ascending: true });
+
+        if (!error && Array.isArray(data)) {
+          const validRows = data.filter((row: any) => Boolean(row.url && String(row.url).startsWith('http')));
+
+          if (validRows.length > 0) {
+            const mapped: Photo[] = validRows.map((row: any) => ({
+              id: row.id,
+              category_id: row.category_id || 'sports',
+              project_id: row.project_id || null,
+              url: row.url,
+              variants: (row.variants && typeof row.variants === 'object') ? row.variants : {},
+              width: Number(row.width) || 1920,
+              height: Number(row.height) || 1080,
+              orientation: (row.orientation === 'portrait' ? 'portrait' : 'landscape') as Orientation,
+              lqip: row.lqip || undefined,
+              alt: row.alt || '',
+              title: row.title || '',
+              order: Number(row.order_index) || 1,
+              featured: Boolean(row.featured),
+              home_gallery: Boolean(row.home_gallery),
+              created_at: row.created_at || new Date().toISOString(),
+            }));
+
+            if (isMounted) {
+              setPhotos(mapped);
+              safeSetLocalStorage(STORAGE_KEYS.PHOTOS, JSON.stringify(mapped));
+              setPhotoSyncStatus('synced');
+            }
+          } else {
+            // Cloud has 0 photos. If local storage already has photos, mark as local_only
+            const localSaved = localStorage.getItem(STORAGE_KEYS.PHOTOS);
+            if (localSaved && isMounted) {
+              setPhotoSyncStatus('local_only');
+            }
+          }
+        } else if (error) {
+          console.warn('[DataContext] Supabase photos query notice:', error.message);
+        }
+      } catch (err) {
+        console.warn('[DataContext] Failed to fetch cloud photos:', err);
+      }
+    };
+
+    fetchCloudPhotos();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Save/Publish photos to Supabase cloud database
+  const syncPhotosToCloud = async (photosToSync?: Photo[]): Promise<{ success: boolean; error?: string }> => {
+    const targetPhotos = photosToSync || photos;
+    if (!supabase || !isSupabaseConfigured) {
+      setPhotoSyncStatus('local_only');
+      return { success: false, error: 'Supabase client is not configured' };
+    }
+
+    setPhotoSyncStatus('syncing');
+    setPhotoSyncError(undefined);
+
+    try {
+      // 1. Ensure categories exist in Supabase first so foreign key constraint (photos.category_id -> categories.slug) does not fail
+      const initialCatRows = [
+        { id: 'cat-sports', title: 'Sports Photography', slug: 'sports', order_index: 1 },
+        { id: 'cat-street', title: 'Street Photography', slug: 'street', order_index: 2 },
+        { id: 'cat-nature', title: 'Nature Photography', slug: 'nature', order_index: 3 },
+        { id: 'cat-wildlife', title: 'Wildlife', slug: 'wildlife', order_index: 4 },
+      ];
+      await supabase.from('categories').upsert(initialCatRows, { onConflict: 'slug' });
+
+      // 2. Prepare photo rows
+      if (targetPhotos.length > 0) {
+        const rows = targetPhotos.map((p, idx) => ({
+          id: p.id,
+          category_id: p.category_id || 'sports',
+          project_id: p.project_id || null,
+          url: p.url,
+          variants: p.variants || {},
+          width: Math.round(Number(p.width)) || 1920,
+          height: Math.round(Number(p.height)) || 1080,
+          orientation: p.orientation === 'portrait' ? 'portrait' : 'landscape',
+          lqip: p.lqip || null,
+          alt: p.alt || '',
+          title: p.title || '',
+          order_index: Number(p.order) || (idx + 1),
+          featured: Boolean(p.featured),
+          home_gallery: Boolean(p.home_gallery),
+          created_at: p.created_at || new Date().toISOString(),
+        }));
+
+        const { error: upsertErr } = await supabase.from('photos').upsert(rows);
+        if (upsertErr) {
+          console.error('[DataContext] Failed to sync photos to Supabase:', upsertErr);
+          setPhotoSyncStatus('error');
+          setPhotoSyncError(upsertErr.message);
+          return { success: false, error: upsertErr.message };
+        }
+
+        // 3. Delete photos from Supabase that were deleted locally
+        const currentIds = targetPhotos.map((p) => p.id);
+        const { data: cloudRows } = await supabase.from('photos').select('id');
+        if (Array.isArray(cloudRows)) {
+          const idsToDelete = cloudRows.map((r: any) => r.id).filter((id: string) => !currentIds.includes(id));
+          if (idsToDelete.length > 0) {
+            await supabase.from('photos').delete().in('id', idsToDelete);
+          }
+        }
+      } else {
+        // If targetPhotos is empty (all photos deleted)
+        await supabase.from('photos').delete().neq('id', '__keep_none__');
+      }
+
+      setPhotoSyncStatus('synced');
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Photo sync failed';
+      console.error('[DataContext] Photo sync exception:', err);
+      setPhotoSyncStatus('error');
+      setPhotoSyncError(msg);
+      return { success: false, error: msg };
+    }
+  };
+
+  // Load site_settings from Supabase on startup
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return;
+    let isMounted = true;
+    const fetchCloudSettings = async () => {
+      try {
+        const { data, error } = await supabase.from('site_settings').select('*').limit(1).maybeSingle();
+        if (!error && data && isMounted) {
+          setSettings(prev => ({
+            ...prev,
+            ...data,
+            about_paragraphs: Array.isArray(data.about_paragraphs) ? data.about_paragraphs : prev.about_paragraphs,
+            social_links: (data.social_links && typeof data.social_links === 'object') ? data.social_links : prev.social_links,
+          }));
+        }
+      } catch (err) {
+        console.warn('[DataContext] Failed to fetch site_settings:', err);
+      }
+    };
+    fetchCloudSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync site_settings to Supabase
+  const syncSettingsToCloud = async (newSettings?: Partial<SiteSettings>): Promise<{ success: boolean; error?: string }> => {
+    if (!supabase || !isSupabaseConfigured) return { success: false, error: 'Supabase client not configured' };
+    try {
+      const merged = { ...settings, ...newSettings, id: 'default', updated_at: new Date().toISOString() };
+      const { error } = await supabase.from('site_settings').upsert([merged]);
+      if (error) {
+        console.warn('[DataContext] Failed to sync site_settings:', error.message);
+        return { success: false, error: error.message };
+      }
+      return { success: true };
+    } catch (err: unknown) {
+      return { success: false, error: err instanceof Error ? err.message : 'Settings sync failed' };
+    }
+  };
+
   // If Supabase is configured, check Supabase Auth session
   useEffect(() => {
     if (!supabase || !isSupabaseConfigured) return;
@@ -425,19 +607,41 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateSettings = (newSettings: Partial<SiteSettings>) => {
-    setSettings(prev => ({ ...prev, ...newSettings }));
+    setSettings(prev => {
+      const next = { ...prev, ...newSettings };
+      syncSettingsToCloud(newSettings);
+      return next;
+    });
   };
 
   const addPhoto = (photo: Photo) => {
-    setPhotos(prev => [photo, ...prev]);
+    setPhotos(prev => {
+      const next = [photo, ...prev];
+      syncPhotosToCloud(next);
+      return next;
+    });
   };
 
   const updatePhoto = (id: string, updates: Partial<Photo>) => {
-    setPhotos(prev => prev.map(p => (p.id === id ? { ...p, ...updates } : p)));
+    setPhotos(prev => {
+      const next = prev.map(p => (p.id === id ? { ...p, ...updates } : p));
+      syncPhotosToCloud(next);
+      return next;
+    });
   };
 
   const deletePhoto = (id: string) => {
-    setPhotos(prev => prev.filter(p => p.id !== id));
+    setPhotos(prev => {
+      const next = prev.filter(p => p.id !== id);
+      syncPhotosToCloud(next);
+      return next;
+    });
+  };
+
+  const reorderPhotos = (newPhotos: Photo[]) => {
+    setPhotos(newPhotos);
+    safeSetLocalStorage(STORAGE_KEYS.PHOTOS, JSON.stringify(newPhotos));
+    syncPhotosToCloud(newPhotos);
   };
 
   const updateHeroSlide = (id: string, updates: Partial<HeroSlide>) => {
@@ -523,6 +727,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         cloudSyncStatus,
         cloudSyncError,
         syncHeroSlidesToCloud,
+        photoSyncStatus,
+        photoSyncError,
+        syncPhotosToCloud,
+        reorderPhotos,
+        syncSettingsToCloud,
         loginAdmin,
         logoutAdmin,
         updateSettings,
