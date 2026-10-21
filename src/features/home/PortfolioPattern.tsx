@@ -17,7 +17,7 @@ export const PortfolioPattern: React.FC<PortfolioPatternProps> = ({ onPhotoClick
 
   return (
     <section className="gallery-pattern-section" id="portfolio">
-      <div className="site-container-wide">
+      <div className="gallery-container">
         {/* Section Heading matching screenshot: Latest Works with small gold dash */}
         <div className="section-heading-wrap">
           <h2 className="section-title">
