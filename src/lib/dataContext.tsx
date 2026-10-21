@@ -30,6 +30,9 @@ interface DataContextType {
   adminUser: AdminProfile | null;
   isAdmin: boolean;
   isLoading: boolean;
+  cloudSyncStatus: 'synced' | 'syncing' | 'error' | 'local_only' | 'idle';
+  cloudSyncError?: string;
+  syncHeroSlidesToCloud: (slides?: HeroSlide[]) => Promise<{ success: boolean; error?: string }>;
   loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   logoutAdmin: () => Promise<void>;
   updateSettings: (newSettings: Partial<SiteSettings>) => void;
@@ -148,6 +151,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return saved ? JSON.parse(saved) : null;
   });
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error' | 'local_only' | 'idle'>('idle');
+  const [cloudSyncError, setCloudSyncError] = useState<string | undefined>(undefined);
 
   // Sync to local storage for persistence across reloads using safeSetLocalStorage
   useEffect(() => {
@@ -183,6 +188,141 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.removeItem(STORAGE_KEYS.ADMIN);
     }
   }, [adminUser]);
+
+  // Load hero slides from Supabase cloud database on startup so ALL devices & visitors see updated slides
+  useEffect(() => {
+    if (!supabase || !isSupabaseConfigured) return;
+
+    let isMounted = true;
+    const fetchCloudHeroSlides = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('hero_slides')
+          .select('*')
+          .order('order_index', { ascending: true });
+
+        if (!error && Array.isArray(data)) {
+          if (data.length > 0) {
+            const mapped: HeroSlide[] = data.map((row: any) => {
+              const target = (row.target as HeroSlide['target']) ||
+                (row.portrait_url && !row.landscape_url ? 'portrait' : 'landscape');
+              const image_url = row.image_url ||
+                (target === 'portrait' ? row.portrait_url : row.landscape_url) ||
+                row.landscape_url ||
+                row.portrait_url ||
+                '';
+              return {
+                id: row.id,
+                title: row.title || '',
+                subtitle: row.subtitle || '',
+                cta_label: row.cta_label || '',
+                cta_url: row.cta_url || '',
+                target,
+                image_url,
+                landscape_url: row.landscape_url || (target === 'landscape' ? image_url : ''),
+                portrait_url: row.portrait_url || (target === 'portrait' ? image_url : ''),
+                order: row.order_index ?? 1,
+                active: row.active ?? true,
+              };
+            });
+
+            if (isMounted) {
+              setHeroSlides(mapped);
+              safeSetLocalStorage(STORAGE_KEYS.HERO, JSON.stringify(mapped));
+              setCloudSyncStatus('synced');
+            }
+          } else {
+            // Cloud has 0 slides. If local storage already has slides, mark as local_only
+            const localSaved = localStorage.getItem(STORAGE_KEYS.HERO);
+            if (localSaved && isMounted) {
+              setCloudSyncStatus('local_only');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[DataContext] Failed to fetch cloud hero slides:', err);
+      }
+    };
+
+    fetchCloudHeroSlides();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Save/Publish hero slides to Supabase cloud database
+  const syncHeroSlidesToCloud = async (slidesToSync?: HeroSlide[]): Promise<{ success: boolean; error?: string }> => {
+    const targetSlides = slidesToSync || heroSlides;
+    if (!supabase || !isSupabaseConfigured) {
+      setCloudSyncStatus('local_only');
+      return { success: false, error: 'Supabase client is not configured' };
+    }
+
+    setCloudSyncStatus('syncing');
+    setCloudSyncError(undefined);
+
+    try {
+      const rows = targetSlides.map((s, idx) => {
+        const isMob = s.target === 'portrait' || (s.portrait_url && !s.landscape_url);
+        const lUrl = isMob ? (s.landscape_url || '') : (s.image_url || s.landscape_url || '');
+        const pUrl = isMob ? (s.image_url || s.portrait_url || '') : (s.portrait_url || '');
+
+        return {
+          id: s.id,
+          title: s.title || '',
+          subtitle: s.subtitle || '',
+          cta_label: s.cta_label || '',
+          cta_url: s.cta_url || '',
+          landscape_url: lUrl,
+          portrait_url: pUrl,
+          order_index: s.order ?? idx + 1,
+          active: s.active ?? true,
+        };
+      });
+
+      // Try full upsert with target and image_url first
+      const fullRows = rows.map((r, idx) => ({
+        ...r,
+        target: targetSlides[idx].target || 'landscape',
+        image_url: targetSlides[idx].image_url || (targetSlides[idx].target === 'portrait' ? targetSlides[idx].portrait_url : targetSlides[idx].landscape_url) || '',
+      }));
+
+      let { error } = await supabase.from('hero_slides').upsert(fullRows);
+      if (error && error.code === 'PGRST204') {
+        // Table doesn't have target/image_url columns yet, fallback to base columns
+        const res = await supabase.from('hero_slides').upsert(rows);
+        error = res.error;
+      }
+
+      if (error) {
+        console.error('[DataContext] Failed to sync hero slides to Supabase:', error);
+        setCloudSyncStatus('error');
+        setCloudSyncError(error.message);
+        return { success: false, error: error.message };
+      }
+
+      // Delete any removed slides in Supabase that are no longer in targetSlides
+      const currentIds = targetSlides.map((s) => s.id);
+      if (currentIds.length > 0) {
+        const { data: cloudRows } = await supabase.from('hero_slides').select('id');
+        if (Array.isArray(cloudRows)) {
+          const idsToDelete = cloudRows.map((r) => r.id).filter((id) => !currentIds.includes(id));
+          if (idsToDelete.length > 0) {
+            await supabase.from('hero_slides').delete().in('id', idsToDelete);
+          }
+        }
+      }
+
+      setCloudSyncStatus('synced');
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Sync failed';
+      console.error('[DataContext] Cloud sync exception:', err);
+      setCloudSyncStatus('error');
+      setCloudSyncError(msg);
+      return { success: false, error: msg };
+    }
+  };
 
   // If Supabase is configured, check Supabase Auth session
   useEffect(() => {
@@ -283,15 +423,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateHeroSlide = (id: string, updates: Partial<HeroSlide>) => {
-    setHeroSlides(prev => prev.map(s => (s.id === id ? { ...s, ...updates } : s)));
+    setHeroSlides(prev => {
+      const next = prev.map(s => (s.id === id ? { ...s, ...updates } : s));
+      syncHeroSlidesToCloud(next);
+      return next;
+    });
   };
 
   const addHeroSlide = (slide: HeroSlide) => {
-    setHeroSlides(prev => [...prev, slide]);
+    setHeroSlides(prev => {
+      const next = [...prev, slide];
+      syncHeroSlidesToCloud(next);
+      return next;
+    });
   };
 
   const deleteHeroSlide = (id: string) => {
-    setHeroSlides(prev => prev.filter(s => s.id !== id));
+    setHeroSlides(prev => {
+      const next = prev.filter(s => s.id !== id);
+      syncHeroSlidesToCloud(next);
+      return next;
+    });
   };
 
   const updateStats = (newStats: StatItem[]) => {
@@ -344,6 +496,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         adminUser,
         isAdmin: adminUser?.role === 'admin',
         isLoading,
+        cloudSyncStatus,
+        cloudSyncError,
+        syncHeroSlidesToCloud,
         loginAdmin,
         logoutAdmin,
         updateSettings,

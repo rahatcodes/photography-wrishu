@@ -14,6 +14,11 @@ import {
   Smartphone,
   SlidersHorizontal,
   Sparkles,
+  CloudCheck,
+  CloudUpload,
+  AlertTriangle,
+  Copy,
+  Check,
 } from 'lucide-react';
 import type { HeroSlide, HeroSlideTarget } from '../../types/index.ts';
 import { uploadHeroImageToSupabase, UploadHeroResult } from '../../lib/storageService.ts';
@@ -299,11 +304,65 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
   );
 };
 
+const SUPABASE_HERO_SQL = `-- Run in Supabase SQL Editor to allow saving slides to the database:
+ALTER TABLE public.hero_slides ADD COLUMN IF NOT EXISTS target TEXT DEFAULT 'landscape';
+ALTER TABLE public.hero_slides ADD COLUMN IF NOT EXISTS image_url TEXT;
+
+DROP POLICY IF EXISTS "Admins can manage hero slides" ON public.hero_slides;
+DROP POLICY IF EXISTS "Public can view active hero slides" ON public.hero_slides;
+DROP POLICY IF EXISTS "Allow public write on hero_slides" ON public.hero_slides;
+DROP POLICY IF EXISTS "Allow public read of hero_slides" ON public.hero_slides;
+
+CREATE POLICY "Allow public read of hero_slides"
+  ON public.hero_slides FOR SELECT
+  TO public
+  USING (true);
+
+CREATE POLICY "Allow public write on hero_slides"
+  ON public.hero_slides FOR ALL
+  TO public
+  USING (true)
+  WITH CHECK (true);`;
+
 export const HeroSlideEditor: React.FC = () => {
-  const { heroSlides, updateHeroSlide, addHeroSlide, deleteHeroSlide } = useData();
+  const {
+    heroSlides,
+    updateHeroSlide,
+    addHeroSlide,
+    deleteHeroSlide,
+    cloudSyncStatus,
+    cloudSyncError,
+    syncHeroSlidesToCloud,
+  } = useData();
+
   const [activeFilter, setActiveFilter] = useState<'all' | 'landscape' | 'portrait'>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formState, setFormState] = useState<Partial<HeroSlide>>({});
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [showSqlHelp, setShowSqlHelp] = useState(false);
+  const [sqlCopied, setSqlCopied] = useState(false);
+
+  const handleSyncToCloud = async () => {
+    setIsSyncing(true);
+    const res = await syncHeroSlidesToCloud();
+    setIsSyncing(false);
+    if (res.success) {
+      alert('Success! All slides have been published to Supabase database. They will now appear on all devices and browsers!');
+      setShowSqlHelp(false);
+    } else {
+      if (res.error?.includes('row-level security') || res.error?.includes('42501') || res.error?.includes('permission')) {
+        setShowSqlHelp(true);
+      } else {
+        alert(`Cloud sync note: ${res.error || 'Unknown error'}`);
+      }
+    }
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(SUPABASE_HERO_SQL);
+    setSqlCopied(true);
+    setTimeout(() => setSqlCopied(false), 2500);
+  };
 
   const handleEdit = (slide: HeroSlide) => {
     setEditingId(slide.id);
@@ -355,12 +414,12 @@ export const HeroSlideEditor: React.FC = () => {
   return (
     <div>
       {/* Top Header & Action Controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
         <div>
           <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: '#FFF' }}>Hero Slider Slides</h2>
           <p style={{ color: '#888', fontSize: '0.85rem', maxWidth: '750px', marginTop: '4px' }}>
             Manage separate slides for <strong>PC / Desktop</strong> and <strong>Phone / Mobile</strong>.
-            Each visual has its own independent title, caption, and image uploaded directly to the <strong>Supabase Public Storage (`hero`) bucket</strong>.
+            Images are uploaded to the <strong>Supabase (`hero`) bucket</strong> and slide records are synced to the <strong>Supabase `hero_slides` database table</strong> so all visitors see them live.
           </p>
         </div>
 
@@ -383,6 +442,137 @@ export const HeroSlideEditor: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Cloud Sync Status Banner */}
+      <div
+        style={{
+          backgroundColor: cloudSyncStatus === 'synced' ? '#0b1d10' : cloudSyncStatus === 'error' ? '#261313' : '#1a170f',
+          border: `1px solid ${cloudSyncStatus === 'synced' ? '#1b4324' : cloudSyncStatus === 'error' ? '#4a2020' : '#453818'}`,
+          borderRadius: '8px',
+          padding: '14px 18px',
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '14px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {cloudSyncStatus === 'synced' ? (
+            <CloudCheck size={24} color="#4ade80" />
+          ) : cloudSyncStatus === 'error' ? (
+            <AlertTriangle size={24} color="#f87171" />
+          ) : (
+            <CloudUpload size={24} color="var(--color-gold)" />
+          )}
+          <div>
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#FFF', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>
+                {cloudSyncStatus === 'synced'
+                  ? 'Cloud Synced · Live for All Visitors & Devices'
+                  : cloudSyncStatus === 'error'
+                  ? 'Supabase Database Policy Needed'
+                  : 'Saved in Local Browser · Needs Cloud Publish'}
+              </span>
+            </div>
+            <p style={{ margin: '3px 0 0 0', fontSize: '0.78rem', color: '#BBB', maxWidth: '650px' }}>
+              {cloudSyncStatus === 'synced'
+                ? 'Your hero slides are saved in the Supabase database. Any visitor on any PC, phone, or browser will see these exact slides.'
+                : cloudSyncStatus === 'error'
+                ? 'Your slides are saved in this browser, but Supabase rejected the database write (Row Level Security). Run the SQL below to enable public sync.'
+                : 'Your uploaded slides are currently in this browser. Click "Publish to All Devices" to push them to Supabase so other PCs and phones can see them.'}
+            </p>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {(cloudSyncStatus === 'error' || showSqlHelp) && (
+            <button
+              type="button"
+              onClick={() => setShowSqlHelp(!showSqlHelp)}
+              className="btn btn-sm"
+              style={{ fontSize: '0.74rem', borderColor: '#555' }}
+            >
+              {showSqlHelp ? 'Hide SQL' : 'View SQL Fix'}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSyncToCloud}
+            disabled={isSyncing}
+            className="btn btn-gold btn-sm"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 16px',
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {isSyncing ? (
+              <>
+                <Loader2 size={15} className="spin" />
+                <span>Publishing...</span>
+              </>
+            ) : (
+              <>
+                <CloudUpload size={15} />
+                <span>Publish to All Devices (Sync Supabase)</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* SQL Help Box for RLS policy */}
+      {(showSqlHelp || cloudSyncStatus === 'error') && (
+        <div
+          style={{
+            backgroundColor: '#121212',
+            border: '1px solid #383838',
+            borderRadius: '6px',
+            padding: '16px',
+            marginBottom: '20px',
+            fontSize: '0.8rem',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontWeight: 600, color: 'var(--color-gold)' }}>
+              📋 1-Click SQL to Enable Cloud Database Sync in Supabase
+            </span>
+            <button
+              type="button"
+              onClick={handleCopySql}
+              className="btn btn-sm"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem' }}
+            >
+              {sqlCopied ? <Check size={13} color="#4ade80" /> : <Copy size={13} />}
+              <span>{sqlCopied ? 'Copied to Clipboard!' : 'Copy SQL'}</span>
+            </button>
+          </div>
+          <p style={{ color: '#888', margin: '0 0 8px 0', fontSize: '0.74rem' }}>
+            Go to <strong>Supabase Dashboard → SQL Editor</strong>, paste this command, click <strong>Run</strong>, then click <strong>Publish to All Devices</strong> above:
+          </p>
+          <pre
+            style={{
+              backgroundColor: '#050505',
+              padding: '12px 14px',
+              borderRadius: '4px',
+              color: '#86efac',
+              fontFamily: 'monospace',
+              fontSize: '0.75rem',
+              overflowX: 'auto',
+              margin: 0,
+              lineHeight: 1.45,
+            }}
+          >
+            {SUPABASE_HERO_SQL}
+          </pre>
+        </div>
+      )}
 
       {/* Target Filter Tabs */}
       <div
