@@ -67,7 +67,8 @@ const SingleImageUploader: React.FC<SingleImageUploaderProps> = ({
       onUrlChange(result.url);
     } catch (err) {
       console.error('Hero upload error:', err);
-      alert('Upload failed. Please check the console or try another image.');
+      const msg = err instanceof Error ? err.message : 'Upload failed. Please check the console or try another image.';
+      alert(msg);
     } finally {
       setIsUploading(false);
     }

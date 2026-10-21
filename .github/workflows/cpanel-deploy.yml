@@ -24,7 +24,12 @@ jobs:
         run: npm ci
 
       - name: Build Production Bundle
-        run: npm run build
+        run: |
+          # Auto-repair accidentally dropped leading 'e' in VITE_SUPABASE_ANON_KEY secret
+          if [[ "$VITE_SUPABASE_ANON_KEY" == yJhbGci* ]]; then
+            export VITE_SUPABASE_ANON_KEY="e$VITE_SUPABASE_ANON_KEY"
+          fi
+          npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
