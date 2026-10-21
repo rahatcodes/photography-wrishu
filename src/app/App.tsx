@@ -4,6 +4,7 @@ import { HelmetProvider } from 'react-helmet-async';
 import { DataProvider } from '../lib/dataContext.tsx';
 import { Header } from '../components/Header.tsx';
 import { Footer } from '../components/Footer.tsx';
+import { ScrollToTop } from '../components/ScrollToTop.tsx';
 
 // Lazy loaded page components for maximum performance and minimum initial JS bundle (<150KB)
 const HomePage = lazy(() =>
@@ -68,6 +69,7 @@ export default function App() {
     <HelmetProvider>
       <DataProvider>
         <BrowserRouter>
+          <ScrollToTop />
           <PublicLayout>
             <Suspense fallback={<PageLoader />}>
               <Routes>
