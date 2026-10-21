@@ -235,9 +235,20 @@ export async function listHeroBucketImages(): Promise<BucketImageItem[]> {
   }
 }
 
+export const CLOUDFLARE_DEFAULT_WORKER_URL = 'https://wrishu-upload-signer.techverseit.workers.dev';
+
+export function resolveWorkerUploadUrl(): string {
+  const envUrl = import.meta.env.VITE_WORKER_UPLOAD_URL;
+  if (!envUrl || envUrl.includes('upload-signer.wrishu.workers.dev') || envUrl.includes('your-worker')) {
+    return CLOUDFLARE_DEFAULT_WORKER_URL;
+  }
+  return envUrl;
+}
+
 /**
  * Uploads catalog photos, project pictures, and portraits to Cloudflare R2 bucket.
  * Renders directly from the custom Cloudflare CDN domain (https://cdn.wrishu.com).
+ * Includes resilient fallback to Supabase storage to prevent user disruption.
  */
 export async function uploadImageToCloudflareR2(
   file: File,
@@ -253,12 +264,8 @@ export async function uploadImageToCloudflareR2(
 
   onProgress?.(65, 'Uploading to Cloudflare R2...');
 
-  const workerUrl = import.meta.env.VITE_WORKER_UPLOAD_URL;
+  const workerUrl = resolveWorkerUploadUrl();
   const cdnBase = import.meta.env.VITE_CLOUDFLARE_R2_CDN || 'https://cdn.wrishu.com';
-
-  if (!workerUrl || workerUrl.includes('your-worker')) {
-    throw new Error('Cloudflare R2 worker upload URL is not configured (VITE_WORKER_UPLOAD_URL).');
-  }
 
   // Retrieve access token if logged in with Supabase Auth
   let token = 'local-admin-token';
@@ -269,52 +276,106 @@ export async function uploadImageToCloudflareR2(
     }
   }
 
-  const signerRes = await fetch(workerUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      category: folder,
-      fileName: file.name,
+  try {
+    const signerRes = await fetch(workerUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        category: folder,
+        fileName: file.name,
+        contentType: 'image/webp',
+        size: compressed.sizeBytes,
+      }),
+    });
+
+    if (!signerRes.ok) {
+      const errText = await signerRes.text();
+      throw new Error(`Cloudflare signer error (${signerRes.status}): ${errText}`);
+    }
+
+    const signData = await signerRes.json();
+    if (!signData.uploadUrl) {
+      throw new Error('Cloudflare signer did not return an upload URL.');
+    }
+
+    // Upload binary WebP directly to presigned URL
+    const uploadRes = await fetch(signData.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/webp' },
+      body: compressed.blob,
+    });
+
+    if (!uploadRes.ok) {
+      throw new Error(`Cloudflare R2 storage rejected upload (${uploadRes.status})`);
+    }
+
+    onProgress?.(100, 'Uploaded to Cloudflare successfully!');
+
+    const publicUrl = signData.publicUrl || `${cdnBase}/${signData.key}`;
+
+    return {
+      url: publicUrl,
+      width: compressed.width,
+      height: compressed.height,
+      sizeBytes: compressed.sizeBytes,
+      savingsPercent: compressed.savingsPercent,
+      storage: 'cloudflare',
+    };
+  } catch (cfErr) {
+    console.warn('[ImageEngine] Cloudflare upload exception, attempting Supabase fallback:', cfErr);
+    if (isSupabaseConfigured) {
+      return await uploadFallbackToSupabase(file, compressed, folder, onProgress);
+    }
+    throw cfErr;
+  }
+}
+
+/**
+ * Fallback cloud upload to Supabase storage when Cloudflare R2 worker is unreachable
+ */
+async function uploadFallbackToSupabase(
+  file: File,
+  compressed: CompressedImage,
+  folder: string,
+  onProgress?: (percent: number, message: string) => void
+): Promise<UploadResult> {
+  onProgress?.(75, 'Uploading to cloud backup storage...');
+  const client = supabaseStorage || supabase;
+  if (!client) {
+    throw new Error('No storage client available for upload');
+  }
+
+  const cleanName = file.name
+    .replace(/\.[^/.]+$/, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '_')
+    .toLowerCase();
+  const filePath = `catalog-photos/${folder}/${Date.now()}-${cleanName}.webp`;
+
+  const { data, error } = await client.storage
+    .from('hero')
+    .upload(filePath, compressed.blob, {
       contentType: 'image/webp',
-      size: compressed.sizeBytes,
-    }),
-  });
+      upsert: true,
+      cacheControl: '31536000',
+    });
 
-  if (!signerRes.ok) {
-    const errText = await signerRes.text();
-    throw new Error(`Cloudflare signer error (${signerRes.status}): ${errText}`);
+  if (error || !data?.path) {
+    throw new Error(`Cloud upload rejected: ${error?.message || 'Upload failed'}`);
   }
 
-  const signData = await signerRes.json();
-  if (!signData.uploadUrl) {
-    throw new Error('Cloudflare signer did not return an upload URL.');
-  }
-
-  // Upload binary WebP directly to presigned URL
-  const uploadRes = await fetch(signData.uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'image/webp' },
-    body: compressed.blob,
-  });
-
-  if (!uploadRes.ok) {
-    throw new Error(`Cloudflare R2 storage rejected upload (${uploadRes.status})`);
-  }
-
-  onProgress?.(100, 'Uploaded to Cloudflare successfully!');
-
-  const publicUrl = signData.publicUrl || `${cdnBase}/${signData.key}`;
+  const { data: urlData } = client.storage.from('hero').getPublicUrl(data.path);
+  onProgress?.(100, 'Uploaded successfully!');
 
   return {
-    url: publicUrl,
+    url: urlData.publicUrl,
     width: compressed.width,
     height: compressed.height,
     sizeBytes: compressed.sizeBytes,
     savingsPercent: compressed.savingsPercent,
-    storage: 'cloudflare',
+    storage: 'supabase',
   };
 }
 
@@ -327,25 +388,16 @@ export async function uploadProfilePortraitImage(
   fileName: string = 'profile-portrait.webp',
   onProgress?: (percent: number, message: string) => void
 ): Promise<UploadResult> {
-  const workerUrl = import.meta.env.VITE_WORKER_UPLOAD_URL;
-  const isCloudflareReady = Boolean(
-    workerUrl &&
-    !workerUrl.includes('your-worker') &&
-    workerUrl.startsWith('http')
-  );
-
   const file = new File([imageBlob], fileName, { type: 'image/webp' });
 
-  // 1. Try Cloudflare R2 if worker URL is provided
-  if (isCloudflareReady) {
-    try {
-      return await uploadImageToCloudflareR2(file, 'profile', onProgress);
-    } catch (cfErr) {
-      console.warn('[ImageEngine] Cloudflare upload failed, attempting Supabase bucket fallback:', cfErr);
-    }
+  // 1. Try Cloudflare R2
+  try {
+    return await uploadImageToCloudflareR2(file, 'profile', onProgress);
+  } catch (cfErr) {
+    console.warn('[ImageEngine] Cloudflare upload failed, attempting Supabase bucket fallback:', cfErr);
   }
 
-  // 2. Upload to Supabase bucket
+  // 2. Upload to Supabase bucket fallback
   onProgress?.(40, 'Uploading profile photo to storage...');
   const client = supabaseStorage || supabase;
   if (!client || !isSupabaseConfigured) {

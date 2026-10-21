@@ -29,6 +29,10 @@ jobs:
           if [[ "$VITE_SUPABASE_ANON_KEY" == yJhbGci* ]]; then
             export VITE_SUPABASE_ANON_KEY="e$VITE_SUPABASE_ANON_KEY"
           fi
+          # Auto-repair unresolvable Cloudflare Worker URL
+          if [[ -z "$VITE_WORKER_UPLOAD_URL" || "$VITE_WORKER_UPLOAD_URL" == *"upload-signer.wrishu.workers.dev"* ]]; then
+            export VITE_WORKER_UPLOAD_URL="https://wrishu-upload-signer.techverseit.workers.dev"
+          fi
           npm run build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}

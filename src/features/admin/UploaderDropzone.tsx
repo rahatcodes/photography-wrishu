@@ -69,7 +69,8 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
       onUploadComplete(newPhoto);
     } catch (err) {
       console.error('Upload / Compression error:', err);
-      alert('Failed to process image. Please try another file.');
+      const msg = err instanceof Error ? err.message : 'Failed to process image';
+      alert(`Upload notice: ${msg}`);
     } finally {
       setIsProcessing(false);
     }
