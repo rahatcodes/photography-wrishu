@@ -19,6 +19,7 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
   const [progressPercent, setProgressPercent] = useState(0);
   const [recentUpload, setRecentUpload] = useState<UploadR2Result | null>(null);
   const [selectedProfile, setSelectedProfile] = useState<CompressionProfile>('compact');
+  const [addToHome, setAddToHome] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeCfg = COMPRESSION_PROFILES[selectedProfile];
@@ -62,7 +63,7 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
         title: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
         order: 1,
         featured: false,
-        home_gallery: true,
+        home_gallery: addToHome,
         created_at: new Date().toISOString(),
       };
 
@@ -151,6 +152,46 @@ export const UploaderDropzone: React.FC<UploaderDropzoneProps> = ({
             );
           })}
         </div>
+      </div>
+
+      {/* Optional Home Gallery Toggle (Deselected by default) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          marginBottom: '14px',
+          padding: '8px 12px',
+          backgroundColor: '#161616',
+          borderRadius: '4px',
+          border: '1px solid #282828',
+          fontSize: '0.78rem',
+        }}
+      >
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            userSelect: 'none',
+            color: addToHome ? 'var(--color-gold)' : '#888',
+            fontWeight: addToHome ? 600 : 400,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={addToHome}
+            onChange={(e) => setAddToHome(e.target.checked)}
+            style={{
+              accentColor: 'var(--color-gold)',
+              cursor: 'pointer',
+              width: '15px',
+              height: '15px',
+            }}
+          />
+          <span>Add newly uploaded photos to Homepage Gallery immediately (default: off)</span>
+        </label>
       </div>
 
       {/* Drag & Drop Zone */}
