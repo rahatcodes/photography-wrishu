@@ -524,20 +524,66 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               gallery_images: Array.isArray(row.gallery_images) ? row.gallery_images : [],
             }));
 
+            // Check if local storage has any unsynced custom project missing from cloud
+            const localSaved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+            let combined = mapped;
+            if (localSaved) {
+              try {
+                const localProjects: Project[] = JSON.parse(localSaved);
+                if (Array.isArray(localProjects)) {
+                  const cloudIds = new Set(mapped.map((p) => p.id));
+                  const missingFromCloud = localProjects.filter(
+                    (lp) => !cloudIds.has(lp.id) && !INITIAL_PROJECTS.some((init) => init.id === lp.id)
+                  );
+                  if (missingFromCloud.length > 0) {
+                    combined = [...mapped, ...missingFromCloud];
+                    console.info('[DataContext] Detected unsynced custom project in local storage. Auto-syncing to Supabase cloud...', missingFromCloud);
+                    syncProjectsToCloud(combined);
+                  }
+                }
+              } catch (e) {
+                console.warn('[DataContext] Failed to parse local projects:', e);
+              }
+            }
+
             if (isMounted) {
-              setProjects(mapped);
-              safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(mapped));
+              setProjects(combined);
+              safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(combined));
               setProjectSyncStatus('synced');
             }
           } else {
-            // Cloud has 0 projects, check local storage
+            // Cloud has 0 projects, check local storage for custom projects
             const localSaved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-            if (localSaved && isMounted) {
+            if (localSaved) {
+              try {
+                const parsed: Project[] = JSON.parse(localSaved);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  const hasCustom = parsed.some(
+                    (p) => !INITIAL_PROJECTS.some((init) => init.id === p.id)
+                  );
+                  if (hasCustom) {
+                    console.info('[DataContext] Cloud projects empty, but local custom projects found. Auto-syncing to cloud...');
+                    if (isMounted) {
+                      setProjects(parsed);
+                    }
+                    syncProjectsToCloud(parsed);
+                    return;
+                  }
+                }
+              } catch (e) {
+                console.warn('[DataContext] Error parsing local projects:', e);
+              }
+            }
+            if (isMounted) {
               setProjectSyncStatus('local_only');
             }
           }
         } else if (error) {
           console.warn('[DataContext] Supabase projects query notice:', error.message);
+          if (isMounted) {
+            setProjectSyncStatus('error');
+            setProjectSyncError(error.message);
+          }
         }
       } catch (err) {
         console.warn('[DataContext] Failed to fetch cloud projects:', err);
@@ -593,6 +639,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       setProjectSyncStatus('synced');
+      setProjectSyncError(undefined);
       return { success: true };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Project sync failed';
@@ -821,6 +868,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           email: data.user.email || email.trim(),
           role: 'admin',
         });
+
+        // Ensure user's profile is registered in public.profiles table
+        try {
+          await supabase.from('profiles').upsert({
+            id: data.user.id,
+            email: data.user.email || email.trim(),
+            role: 'admin',
+          });
+        } catch (profErr) {
+          console.warn('[DataContext] Profile auto-repair notice:', profErr);
+        }
+
+        // Trigger auto-sync for any local projects stored in browser
+        const localProjectsStr = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+        if (localProjectsStr) {
+          try {
+            const localProjects = JSON.parse(localProjectsStr);
+            if (Array.isArray(localProjects)) {
+              const hasCustom = localProjects.some(
+                (p: Project) => !INITIAL_PROJECTS.some((init) => init.id === p.id)
+              );
+              if (hasCustom) {
+                console.info('[DataContext] Admin logged in with unsynced local projects. Syncing now...');
+                syncProjectsToCloud(localProjects);
+              }
+            }
+          } catch {}
+        }
+
         setIsLoading(false);
         return { success: true };
       }

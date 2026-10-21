@@ -34,6 +34,8 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onNotify }) =>
     deletePhoto,
     checkSlugAvailability,
     projectSyncStatus,
+    projectSyncError,
+    syncProjectsToCloud,
   } = useData();
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -320,7 +322,7 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onNotify }) =>
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
           {projectSyncStatus === 'syncing' && (
             <span style={{ fontSize: '0.8rem', color: 'var(--color-gold)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Loader2 size={14} className="spin" /> Syncing database...
@@ -331,6 +333,34 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onNotify }) =>
               <CheckCircle2 size={14} /> Cloud Synced
             </span>
           )}
+          {projectSyncStatus === 'local_only' && (
+            <span style={{ fontSize: '0.8rem', color: '#eab308', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertCircle size={14} /> Unsynced Local
+            </span>
+          )}
+          {projectSyncStatus === 'error' && (
+            <span style={{ fontSize: '0.8rem', color: '#ef4444', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <AlertCircle size={14} /> Sync Failed
+            </span>
+          )}
+
+          <button
+            onClick={async () => {
+              onNotify('Syncing projects to Supabase cloud...');
+              const res = await syncProjectsToCloud();
+              if (res.success) {
+                onNotify('Projects synced successfully to cloud database!');
+              } else {
+                onNotify('Sync error: ' + (res.error || 'Check database permissions'));
+              }
+            }}
+            className="btn btn-outline btn-sm"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', padding: '6px 12px' }}
+            title="Force push all local projects to Supabase cloud"
+          >
+            <UploadCloud size={14} />
+            <span>Sync to Cloud</span>
+          </button>
 
           <button onClick={handleAddNew} className="btn btn-gold btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={16} />
@@ -338,6 +368,39 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onNotify }) =>
           </button>
         </div>
       </div>
+
+      {/* Sync Error Banner if RLS or database error occurs */}
+      {projectSyncStatus === 'error' && (
+        <div style={{
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: '8px',
+          padding: '12px 16px',
+          marginBottom: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          flexWrap: 'wrap'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#f87171', fontSize: '0.85rem' }}>
+            <AlertCircle size={18} />
+            <span>
+              <strong>Database Sync Error:</strong> {projectSyncError || 'Row Level Security policy blocked write.'} If you haven't updated RLS policies in Supabase, run the migration update in Supabase SQL editor.
+            </span>
+          </div>
+          <button
+            onClick={async () => {
+              const res = await syncProjectsToCloud();
+              if (res.success) onNotify('Cloud sync succeeded!');
+            }}
+            className="btn btn-sm"
+            style={{ backgroundColor: '#ef4444', color: '#fff', fontSize: '0.75rem', whiteSpace: 'nowrap', padding: '6px 12px' }}
+          >
+            Retry Sync
+          </button>
+        </div>
+      )}
 
       {/* Projects List */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>

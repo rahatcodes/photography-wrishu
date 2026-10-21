@@ -21,6 +21,16 @@ CREATE POLICY "Public profiles are readable by authenticated users"
   TO authenticated
   USING (true);
 
+CREATE POLICY "Users can insert own profile"
+  ON public.profiles FOR INSERT
+  TO authenticated
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can update own profile"
+  ON public.profiles FOR UPDATE
+  TO authenticated
+  USING (auth.uid() = id);
+
 CREATE POLICY "Admins can update profile roles"
   ON public.profiles FOR ALL
   TO authenticated
@@ -178,8 +188,9 @@ CREATE POLICY "Public can view projects"
 
 CREATE POLICY "Admins can manage projects"
   ON public.projects FOR ALL
-  TO authenticated
-  USING (public.is_admin());
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
 
 -- 8. Stats Table
 CREATE TABLE IF NOT EXISTS public.stats (
@@ -199,8 +210,9 @@ CREATE POLICY "Public can view stats"
 
 CREATE POLICY "Admins can update stats"
   ON public.stats FOR ALL
-  TO authenticated
-  USING (public.is_admin());
+  TO anon, authenticated
+  USING (true)
+  WITH CHECK (true);
 
 -- 9. Contact Messages Table
 CREATE TABLE IF NOT EXISTS public.messages (
