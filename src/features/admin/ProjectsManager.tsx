@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { uploadImageToCloudflareR2 } from '../../lib/imageEngine.ts';
 import type { Project, Photo } from '../../types/index.ts';
+import { resolveProjectCoverImage } from '../../lib/projectHelpers.ts';
 
 interface ProjectsManagerProps {
   onNotify: (msg: string) => void;
@@ -443,9 +444,9 @@ export const ProjectsManager: React.FC<ProjectsManagerProps> = ({ onNotify }) =>
                         border: '1px solid rgba(255,255,255,0.1)',
                       }}
                     >
-                      {proj.featured_image_url ? (
+                      {resolveProjectCoverImage(proj, photos) ? (
                         <img
-                          src={proj.featured_image_url}
+                          src={resolveProjectCoverImage(proj, photos)}
                           alt={proj.title}
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />

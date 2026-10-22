@@ -5,6 +5,7 @@ import { Lightbox } from '../../components/Lightbox.tsx';
 import { SeoHead } from '../../components/SeoHead.tsx';
 import { ArrowLeft, Images } from 'lucide-react';
 import type { Photo } from '../../types/index.ts';
+import { resolveProjectCoverImage, PROJECT_FALLBACK_COVERS } from '../../lib/projectHelpers.ts';
 
 export const ProjectsPage: React.FC = () => {
   const { projects, photos } = useData();
@@ -214,7 +215,9 @@ export const ProjectsPage: React.FC = () => {
           {/* 3-column responsive grid */}
           <div className="projects-grid">
             {projects.map((project) => {
-              const count = photos.filter((p) => p.project_id === project.id).length || project.photos_count || 12;
+              const projectPhotos = photos.filter((p) => p.project_id === project.id);
+              const count = projectPhotos.length || project.photos_count || 12;
+              const coverUrl = resolveProjectCoverImage(project, photos);
 
               return (
                 <div
@@ -224,11 +227,18 @@ export const ProjectsPage: React.FC = () => {
                 >
                   <div style={{ position: 'relative', overflow: 'hidden' }}>
                     <img
-                      src={project.featured_image_url}
+                      src={coverUrl}
                       alt={project.title}
                       className="project-card-image"
                       loading="lazy"
                       decoding="async"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        const fallback = projectPhotos[0]?.url || PROJECT_FALLBACK_COVERS[project.id];
+                        if (fallback && target.src !== fallback) {
+                          target.src = fallback;
+                        }
+                      }}
                     />
                     <div
                       style={{

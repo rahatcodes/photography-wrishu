@@ -18,6 +18,7 @@ import {
   INITIAL_STATS,
 } from './mockData.ts';
 import { supabase, isSupabaseConfigured } from './supabaseClient.ts';
+import { resolveProjectCoverImage, cleanCdnUrl } from './projectHelpers.ts';
 
 interface DataContextType {
   categories: Category[];
@@ -134,7 +135,19 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   });
   const [projects, setProjects] = useState<Project[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-    return saved ? JSON.parse(saved) : INITIAL_PROJECTS;
+    if (!saved) return INITIAL_PROJECTS;
+    try {
+      const parsed: Project[] = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((p) => ({
+          ...p,
+          featured_image_url: resolveProjectCoverImage(p),
+        }));
+      }
+    } catch {
+      // fallback to initial
+    }
+    return INITIAL_PROJECTS;
   });
   const [stats, setStats] = useState<StatItem[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STATS);
@@ -403,6 +416,16 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               setPhotos(mapped);
               safeSetLocalStorage(STORAGE_KEYS.PHOTOS, JSON.stringify(mapped));
               setPhotoSyncStatus('synced');
+
+              // Automatically resolve and heal project covers with freshly fetched photos
+              setProjects((currentProjects) => {
+                const updated = currentProjects.map((proj) => ({
+                  ...proj,
+                  featured_image_url: resolveProjectCoverImage(proj, mapped),
+                }));
+                safeSetLocalStorage(STORAGE_KEYS.PROJECTS, JSON.stringify(updated));
+                return updated;
+              });
             }
           } else {
             // Cloud has 0 photos. If local storage already has photos, mark as local_only
@@ -513,16 +536,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
         if (!error && Array.isArray(data)) {
           if (data.length > 0) {
-            const mapped: Project[] = data.map((row: any) => ({
-              id: row.id,
-              title: row.title || 'Untitled Project',
-              slug: row.slug,
-              featured_image_url: row.featured_image_url || '',
-              description: row.description || '',
-              order: Number(row.order_index) || 1,
-              photos_count: Number(row.photos_count) || 0,
-              gallery_images: Array.isArray(row.gallery_images) ? row.gallery_images : [],
-            }));
+            const mapped: Project[] = data.map((row: any) => {
+              const rawProj: Project = {
+                id: row.id,
+                title: row.title || 'Untitled Project',
+                slug: row.slug,
+                featured_image_url: row.featured_image_url || '',
+                description: row.description || '',
+                order: Number(row.order_index) || 1,
+                photos_count: Number(row.photos_count) || 0,
+                gallery_images: Array.isArray(row.gallery_images) ? row.gallery_images : [],
+              };
+              return {
+                ...rawProj,
+                featured_image_url: resolveProjectCoverImage(rawProj, photos),
+              };
+            });
 
             // Check if local storage has any unsynced custom project missing from cloud
             const localSaved = localStorage.getItem(STORAGE_KEYS.PROJECTS);

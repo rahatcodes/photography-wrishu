@@ -35,11 +35,21 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
     }
   }, [src]);
 
+  const cleanUrl = (u?: string) => {
+    if (!u) return '';
+    return u.replace(
+      /https:\/\/[^/]+\.supabase\.co\/storage\/v1\/object\/public\/hero\/catalog-photos\//g,
+      'https://cdn.wrishu.com/'
+    );
+  };
+
+  const sanitizedSrc = cleanUrl(src);
+
   // Build srcset from variants
   let srcSetWebP = '';
   if (variants && Object.keys(variants).length > 0) {
     srcSetWebP = Object.entries(variants)
-      .map(([w, url]) => `${url} ${w}w`)
+      .map(([w, url]) => `${cleanUrl(url)} ${w}w`)
       .join(', ');
   }
 
@@ -87,7 +97,7 @@ export const ResponsiveImage: React.FC<ResponsiveImageProps> = ({
         )}
         <img
           ref={imgRef}
-          src={src}
+          src={sanitizedSrc}
           alt={alt}
           width={width}
           height={height}

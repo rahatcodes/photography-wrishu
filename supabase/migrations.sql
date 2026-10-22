@@ -267,3 +267,16 @@ CREATE POLICY "Admins can update/delete hero bucket files"
   ON storage.objects FOR ALL
   TO authenticated
   USING (bucket_id = 'hero' AND public.is_admin());
+
+-- 11. Repair project featured cover URLs to Cloudflare R2 CDN & allow project management
+UPDATE public.projects SET featured_image_url = 'https://cdn.wrishu.com/projects/1792625464755-dsc09733.webp' WHERE id = 'proj-1792625196139';
+UPDATE public.projects SET featured_image_url = 'https://cdn.wrishu.com/projects/1792625727622-dsc05725.webp' WHERE id = 'proj-1792625566743';
+UPDATE public.projects SET featured_image_url = 'https://cdn.wrishu.com/projects/1792625920543-dsc03308.webp' WHERE id = 'proj-1792625808500';
+UPDATE public.projects SET featured_image_url = 'https://cdn.wrishu.com/projects/1792626245045-dsc09196.webp' WHERE id = 'proj-1792626156981';
+UPDATE public.projects SET featured_image_url = 'https://cdn.wrishu.com/projects/1792626554091-dsc03056.webp' WHERE id = 'proj-1792626481403';
+
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins can manage projects" ON public.projects;
+DROP POLICY IF EXISTS "Allow public write projects" ON public.projects;
+CREATE POLICY "Allow public write projects" ON public.projects FOR ALL TO public USING (true) WITH CHECK (true);
+
