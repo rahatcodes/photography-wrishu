@@ -7,6 +7,7 @@ interface LightboxProps {
   imageUrl: string;
   altText: string;
   title?: string;
+  showCaption?: boolean;
   onPrev?: () => void;
   onNext?: () => void;
   hasPrev?: boolean;
@@ -19,6 +20,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
   imageUrl,
   altText,
   title,
+  showCaption = true,
   onPrev,
   onNext,
   hasPrev = true,
@@ -94,7 +96,7 @@ export const Lightbox: React.FC<LightboxProps> = ({
           </button>
         )}
 
-        {(title || altText) && (
+        {showCaption && (title || altText) && (
           <div className="lightbox-caption">
             {title ? <strong>{title} — </strong> : null}
             <span>{altText}</span>

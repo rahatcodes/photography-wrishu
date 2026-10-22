@@ -16,8 +16,8 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ categorySlug }) => {
   const category = categories.find((c) => c.slug === categorySlug);
   const categoryTitle = category?.title || categorySlug.replace(/-/g, ' ').toUpperCase();
 
-  // Filter photos matching this category
-  const categoryPhotos = photos.filter((p) => p.category_id === categorySlug);
+  // Filter photos matching this category (strictly excluding photos that belong to project galleries)
+  const categoryPhotos = photos.filter((p) => p.category_id === categorySlug && !p.project_id);
 
   const selectedPhoto: Photo | null =
     selectedPhotoIndex !== null ? categoryPhotos[selectedPhotoIndex] : null;
@@ -74,19 +74,6 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ categorySlug }) => {
                       sizes={isLandscape ? '(max-width: 768px) 100vw, 1100px' : '(max-width: 768px) 100vw, 700px'}
                     />
                   </div>
-                  {photo.title && (
-                    <div
-                      style={{
-                        marginTop: '12px',
-                        fontSize: '0.85rem',
-                        color: '#888',
-                        letterSpacing: '0.05em',
-                        fontFamily: 'var(--font-display)',
-                      }}
-                    >
-                      {photo.title}
-                    </div>
-                  )}
                 </article>
               );
             })
@@ -94,14 +81,14 @@ export const CategoryPage: React.FC<CategoryPageProps> = ({ categorySlug }) => {
         </div>
       </div>
 
-      {/* Lightbox */}
+      {/* Lightbox - clean presentation without titles/captions on catalog pages */}
       {selectedPhoto && (
         <Lightbox
           isOpen={selectedPhotoIndex !== null}
           onClose={() => setSelectedPhotoIndex(null)}
           imageUrl={selectedPhoto.url}
           altText={selectedPhoto.alt}
-          title={selectedPhoto.title}
+          showCaption={false}
           hasPrev={selectedPhotoIndex! > 0}
           hasNext={selectedPhotoIndex! < categoryPhotos.length - 1}
           onPrev={() => setSelectedPhotoIndex((prev) => (prev !== null && prev > 0 ? prev - 1 : prev))}

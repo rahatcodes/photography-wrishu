@@ -33,13 +33,13 @@ export const ProjectsPage: React.FC = () => {
     // Fallback for initial demo projects if no photos have been assigned project_id yet
     if (projectPhotos.length === 0) {
       if (activeProject.id === 'proj-1' || activeProject.slug === 'fifa-afc-matches') {
-        projectPhotos = photos.filter((p) => p.category_id === 'sports').slice(0, 8);
+        projectPhotos = photos.filter((p) => p.category_id === 'sports' && !p.project_id).slice(0, 8);
       } else if (activeProject.id === 'proj-4' || activeProject.slug === 'dhaka-after-dark') {
-        projectPhotos = photos.filter((p) => p.category_id === 'street').slice(0, 8);
+        projectPhotos = photos.filter((p) => p.category_id === 'street' && !p.project_id).slice(0, 8);
       } else if (activeProject.id === 'proj-5' || activeProject.slug === 'wings-of-bengal') {
-        projectPhotos = photos.filter((p) => p.category_id === 'wildlife' || p.category_id === 'nature').slice(0, 8);
+        projectPhotos = photos.filter((p) => (p.category_id === 'wildlife' || p.category_id === 'nature') && !p.project_id).slice(0, 8);
       } else {
-        projectPhotos = photos.slice(0, 6);
+        projectPhotos = photos.filter((p) => !p.project_id).slice(0, 6);
       }
     }
   }

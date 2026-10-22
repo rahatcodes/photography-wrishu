@@ -72,7 +72,7 @@ export const PhotosManager: React.FC<PhotosManagerProps> = ({ onNotify }) => {
   const [showSqlHelp, setShowSqlHelp] = useState(false);
   const [sqlCopied, setSqlCopied] = useState(false);
 
-  const filteredPhotos = photos.filter((p) => p.category_id === selectedCategory);
+  const filteredPhotos = photos.filter((p) => p.category_id === selectedCategory && !p.project_id);
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(SUPABASE_PHOTOS_SQL);
@@ -123,7 +123,7 @@ export const PhotosManager: React.FC<PhotosManagerProps> = ({ onNotify }) => {
   };
 
   const handleMovePhoto = (photoId: string, direction: 'up' | 'down') => {
-    const catPhotos = photos.filter((p) => p.category_id === selectedCategory);
+    const catPhotos = photos.filter((p) => p.category_id === selectedCategory && !p.project_id);
     const catIndex = catPhotos.findIndex((p) => p.id === photoId);
     if (catIndex === -1) return;
     const targetIndex = direction === 'up' ? catIndex - 1 : catIndex + 1;
@@ -135,7 +135,7 @@ export const PhotosManager: React.FC<PhotosManagerProps> = ({ onNotify }) => {
     newCatPhotos[targetIndex] = temp;
 
     const updatedCatPhotos = newCatPhotos.map((p, idx) => ({ ...p, order: idx + 1 }));
-    const otherPhotos = photos.filter((p) => p.category_id !== selectedCategory);
+    const otherPhotos = photos.filter((p) => p.category_id !== selectedCategory || Boolean(p.project_id));
     const fullNewList = [...otherPhotos, ...updatedCatPhotos];
 
     reorderPhotos(fullNewList);
@@ -294,7 +294,7 @@ export const PhotosManager: React.FC<PhotosManagerProps> = ({ onNotify }) => {
               backgroundColor: selectedCategory === cat.slug ? 'rgba(200, 145, 74, 0.15)' : 'transparent',
             }}
           >
-            {cat.title} ({photos.filter((p) => p.category_id === cat.slug).length})
+            {cat.title} ({photos.filter((p) => p.category_id === cat.slug && !p.project_id).length})
           </button>
         ))}
       </div>
